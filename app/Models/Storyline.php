@@ -31,7 +31,7 @@ class Storyline extends Model
     public function daysSinceLastUpdate(): ?int
     {
         $reference = $this->last_updated_at ?? $this->started_at;
-        return $reference ? $reference->diffInDays(now()) : null;
+        return $reference ? (int) $reference->diffInDays(now()) : null;
     }
 
     /**

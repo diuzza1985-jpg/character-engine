@@ -1,0 +1,223 @@
+<?php
+namespace App\Jobs;
+use App\Models\Character;
+use App\Models\CharacterAsset;
+use App\Models\Generation;
+use App\Models\LifeEvent;
+use App\Models\Post;
+use App\Models\TimelineEntry;
+use App\Services\EditorialCycleService;
+use App\Services\FalImageService;
+use App\Services\ImagePromptBuilder;
+use App\Services\ImageTextOverlayService;
+use App\Services\LifeEventSelector;
+use App\Services\NewsDigestService;
+use App\Services\OpenAiTextService;
+use App\Services\PromptBuilder;
+use App\Services\ReferenceImageSelector;
+use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Foundation\Bus\Dispatchable;
+use Illuminate\Queue\InteractsWithQueue;
+use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
+use RuntimeException;
+use Throwable;
+class GenerateInstagramPostJob implements ShouldQueue
+{
+    use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
+    public $tries = 3;
+    public $backoff = [30, 120, 600];
+    private const COMPANION_MAP = [
+        'pippo_leash' => 'pippo', 'walking_pippo' => 'pippo', 'minnie_blanket' => 'minnie',
+        'sushi_aquarium' => 'sushi', 'fernando_toolbox' => 'fernando', 'fernando_project' => 'fernando',
+    ];
+    // Stessa lista base di ImagePromptBuilder::negativePrompt(), senza gli override
+    // scena-specifici: il cervello editoriale non produce uno scene[] strutturato, solo un
+    // prompt_immagine libero (stessa scelta già presa per la pubblicazione di Post#13, 11.13).
+    private const CERVELLO_NEGATIVE_PROMPT = 'AI artifacts, extra fingers, plastic skin, fashion pose, luxury house, gaming setup, random stickers, different pets';
+    public function __construct(
+        private int $characterId,
+        private string $postType = 'image',
+        private ?int $forceLifeEventId = null,
+        private ?string $instructions = null,
+        private bool $useEditorialBrain = false
+    ) {}
+    public function handle(
+        LifeEventSelector $lifeEventSelector, PromptBuilder $promptBuilder, OpenAiTextService $openAi,
+        ImagePromptBuilder $imagePromptBuilder, ReferenceImageSelector $referenceSelector,
+        FalImageService $fal, ImageTextOverlayService $overlay, NewsDigestService $newsDigest,
+        EditorialCycleService $editorialCycle
+    ): ?Post {
+        $character = Character::findOrFail($this->characterId);
+
+        if ($this->useEditorialBrain) {
+            return $this->handleEditorialBrainFlow($character, $editorialCycle, $referenceSelector, $fal);
+        }
+
+        return $this->handleLegacyFlow(
+            $character, $lifeEventSelector, $promptBuilder, $openAi,
+            $imagePromptBuilder, $referenceSelector, $fal, $overlay, $newsDigest
+        );
+    }
+
+    /**
+     * Percorso invariato (pre-riconciliazione, 12.1): selezione fissa da life_events, usato
+     * quando c'è un life event forzato a mano (scheduled_post/slot in modalità "manual") o dai
+     * comandi di test. Nessuna lettura di mood/drives/storyline.
+     */
+    private function handleLegacyFlow(
+        Character $character, LifeEventSelector $lifeEventSelector, PromptBuilder $promptBuilder,
+        OpenAiTextService $openAi, ImagePromptBuilder $imagePromptBuilder, ReferenceImageSelector $referenceSelector,
+        FalImageService $fal, ImageTextOverlayService $overlay, NewsDigestService $newsDigest
+    ): ?Post {
+        $generation = Generation::create([
+            'character_id' => $character->id, 'tenant_id' => $character->tenant_id,
+            'purpose' => 'instagram_post', 'status' => 'processing',
+            'input' => ['post_type' => $this->postType, 'instructions' => $this->instructions], 'credits_charged' => 0,
+        ]);
+        try {
+            $lifeEvent = $this->forceLifeEventId
+                ? LifeEvent::findOrFail($this->forceLifeEventId)
+                : $lifeEventSelector->pick($character);
+            $news = $lifeEvent->news_query
+                ? $newsDigest->fetchRecent($lifeEvent->news_query, $lifeEvent->news_category)
+                : [];
+            $textPrompt = $promptBuilder->buildInstagramPostPrompt($character, $lifeEvent, $this->postType, $news, $this->instructions);
+            $post = $openAi->generate($textPrompt);
+            if ($this->postType === 'carousel' && empty($post['carousel_slides'])) {
+                throw new RuntimeException('Richiesto un carosello ma OpenAI non ha restituito carousel_slides.');
+            }
+            $imageBuilt = $imagePromptBuilder->build($character, $post['scene']);
+            $reference = $referenceSelector->pick($character);
+            $imageResult = $fal->generate($imageBuilt['prompt'], $imageBuilt['negative_prompt'], $reference);
+            $baseImagePath = "generations/{$character->tenant_id}/{$character->id}/" . now()->format('Ymd_His') . '_' . Str::random(6) . '.png';
+            Storage::disk('local')->put($baseImagePath, $imageResult['binary']);
+            $this->saveCompanionReferenceIfNeeded($character, $post['scene'], $baseImagePath);
+            $mediaPaths = $this->postType === 'carousel'
+                ? $this->buildCarouselSlides($overlay, $character, $imageResult['binary'], $post['carousel_slides'])
+                : [$baseImagePath];
+            $timelineEntry = TimelineEntry::create([
+                'character_id' => $character->id, 'life_event_id' => $lifeEvent->id,
+                'topic' => $lifeEvent->scene_hint['topic'] ?? null, 'scene' => $post['scene'],
+                'title' => $post['titolo'] ?? $lifeEvent->title,
+            ]);
+            $postRecord = Post::create([
+                'character_id' => $character->id, 'generation_id' => $generation->id,
+                'platform' => 'instagram', 'media_type' => $this->postType, 'status' => 'draft',
+                'caption' => $this->buildFullCaption($post), 'media_urls' => $mediaPaths,
+            ]);
+            $generation->update([
+                'status' => 'completed',
+                'output' => [
+                    'post' => $post, 'image_path' => $baseImagePath, 'media_paths' => $mediaPaths,
+                    'seed' => $imageResult['seed'], 'reference_asset_id' => $reference->id,
+                    'timeline_entry_id' => $timelineEntry->id, 'post_id' => $postRecord->id,
+                    'news_used' => $news,
+                ],
+                'completed_at' => now(),
+            ]);
+            return $postRecord;
+        } catch (Throwable $e) {
+            $generation->update(['status' => 'failed', 'output' => ['error' => $e->getMessage()]]);
+            throw $e;
+        }
+    }
+
+    /**
+     * Percorso riconciliato (12.1): la decisione (se e cosa pubblicare) arriva da
+     * EditorialCycleService::run() — stessa logica già verificata da
+     * character:run-editorial-cycle, pavimento max_giorni_silenzio incluso (11.12), non
+     * duplicata qui. run() crea già generations/editorial_decisions/post draft (media_urls
+     * vuoto); qui si genera solo l'immagine (riusando FalImageService/ReferenceImageSelector
+     * esistenti) e si completa il post, oppure non si fa nulla se la decisione è
+     * "non_pubblicare".
+     */
+    private function handleEditorialBrainFlow(
+        Character $character, EditorialCycleService $editorialCycle,
+        ReferenceImageSelector $referenceSelector, FalImageService $fal
+    ): ?Post {
+        $result = $editorialCycle->run($character);
+
+        if (! $result['decision']) {
+            throw new RuntimeException($result['generation']->output['error'] ?? 'Cervello editoriale fallito.');
+        }
+
+        if (! $result['post']) {
+            return null; // non_pubblicare: esito legittimo, nessun post da creare.
+        }
+
+        try {
+            $reference = $referenceSelector->pick($character);
+            if (! $reference) {
+                throw new RuntimeException("Nessun asset di riferimento trovato per {$character->name}.");
+            }
+
+            $imageResult = $fal->generate($result['decision']['prompt_immagine'], self::CERVELLO_NEGATIVE_PROMPT, $reference);
+
+            $imagePath = "generations/{$character->tenant_id}/{$character->id}/" . now()->format('Ymd_His') . '_' . Str::random(6) . '.png';
+            Storage::disk('local')->put($imagePath, $imageResult['binary']);
+
+            $timelineEntry = TimelineEntry::create([
+                'character_id' => $character->id,
+                'storyline_id' => $result['editorial_decision']->storyline_id,
+                'title' => $result['decision']['idea'],
+            ]);
+
+            $result['post']->update(['media_urls' => [$imagePath]]);
+
+            $result['generation']->update(['output' => array_merge($result['generation']->output, [
+                'image_path' => $imagePath,
+                'seed' => $imageResult['seed'],
+                'reference_asset_id' => $reference->id,
+                'timeline_entry_id' => $timelineEntry->id,
+            ])]);
+        } catch (Throwable $e) {
+            // La decisione editoriale resta valida (generations/editorial_decisions già
+            // completi): qui è fallita solo la generazione immagine, quindi si segna il post
+            // (non la generation, che documenta correttamente una decisione presa).
+            $result['post']->update(['status' => 'failed']);
+            throw $e;
+        }
+
+        return $result['post']->fresh();
+    }
+
+    private function buildCarouselSlides(ImageTextOverlayService $overlay, Character $character, string $baseImageBinary, array $slideTexts): array
+    {
+        $paths = [];
+        foreach ($slideTexts as $index => $text) {
+            $composited = $overlay->overlay($baseImageBinary, $text);
+            $slidePath = "generations/{$character->tenant_id}/{$character->id}/" . now()->format('Ymd_His') . '_' . Str::random(6) . "_slide{$index}.png";
+            Storage::disk('local')->put($slidePath, $composited);
+            $paths[] = $slidePath;
+        }
+        return $paths;
+    }
+    private function buildFullCaption(array $post): string
+    {
+        $lines = [$post['caption'] ?? ''];
+        if (! empty($post['hashtags'])) {
+            $lines[] = implode(' ', array_map(fn ($h) => str_starts_with($h, '#') ? $h : "#{$h}", $post['hashtags']));
+        }
+        return trim(implode("\n\n", array_filter($lines)));
+    }
+    private function saveCompanionReferenceIfNeeded(Character $character, array $scene, string $imagePath): void
+    {
+        $companion = null;
+        foreach ($scene['props'] ?? [] as $prop) {
+            if (isset(self::COMPANION_MAP[$prop])) {
+                $companion = self::COMPANION_MAP[$prop];
+                break;
+            }
+        }
+        if (! $companion) {
+            return;
+        }
+        CharacterAsset::updateOrCreate(
+            ['character_id' => $character->id, 'type' => "companion_{$companion}"],
+            ['file_path' => $imagePath, 'is_default' => false]
+        );
+    }
+}

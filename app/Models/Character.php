@@ -63,4 +63,8 @@ class Character extends Model
     {
         return $this->hasMany(CharacterRelationship::class);
     }
+    public function editorialSettings()
+    {
+        return $this->hasOne(CharacterEditorialSettings::class);
+    }
 }

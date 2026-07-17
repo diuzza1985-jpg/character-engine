@@ -1,6 +1,7 @@
 <?php
 namespace App\Services;
 use App\Models\Character;
+use App\Models\CharacterEditorialSettings;
 use App\Models\EditorialDecision;
 use App\Models\Generation;
 use App\Models\Post;
@@ -26,6 +27,19 @@ class EditorialCycleService
      */
     public function run(Character $character): array
     {
+        $settings = CharacterEditorialSettings::firstOrCreate(
+            ['character_id' => $character->id],
+            ['max_giorni_silenzio' => 2]
+        );
+
+        // Contiamo da created_at, non da published_at: la pubblicazione Instagram reale non è
+        // ancora collegata a questo percorso (sezione 9/11.11), quindi published_at sarebbe
+        // sempre nullo nei test — rivedere questo punto quando la pubblicazione sarà collegata.
+        $lastPost = Post::where('character_id', $character->id)->latest('created_at')->first();
+        $daysSinceLastPost = $lastPost ? (int) $lastPost->created_at->diffInDays(now()) : null;
+        // Nessun post mai creato conta come silenzio "infinito": supera qualunque soglia finita.
+        $forcePublish = $daysSinceLastPost === null || $daysSinceLastPost > $settings->max_giorni_silenzio;
+
         $context = $this->contextBuilder->build($character);
 
         $generation = Generation::create([
@@ -38,7 +52,7 @@ class EditorialCycleService
         ]);
 
         try {
-            $decision = $this->brain->decide($character, $context);
+            $decision = $this->brain->decide($character, $context, $forcePublish, $daysSinceLastPost, $settings->max_giorni_silenzio);
         } catch (Throwable $e) {
             Log::warning("Ciclo editoriale fallito per {$character->slug}: {$e->getMessage()}");
             $generation->update([

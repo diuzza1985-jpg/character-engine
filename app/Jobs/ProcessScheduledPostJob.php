@@ -50,9 +50,11 @@ class ProcessScheduledPostJob implements ShouldQueue
                 }
             } else {
                 // Slot automatico: il cervello editoriale decide se e cosa pubblicare (11.7/11.12),
-                // non più una selezione fissa da life_events (12.1). $postType/$instructions non
-                // usati qui: formato e idea li decide il cervello editoriale stesso.
-                $draftPost = Bus::dispatchNow(new GenerateInstagramPostJob($characterId, useEditorialBrain: true));
+                // non più una selezione fissa da life_events (12.1). $postType non usato: il
+                // formato lo decide il cervello editoriale stesso. $instructions passate come
+                // guida al contenuto (11.14) — non forzano la pubblicazione, solo
+                // max_giorni_silenzio può farlo.
+                $draftPost = Bus::dispatchNow(new GenerateInstagramPostJob($characterId, instructions: $instructions, useEditorialBrain: true));
                 if (! $draftPost) {
                     // non_pubblicare: esito legittimo, non un errore — non c'è nulla da pubblicare oggi.
                     $scheduledPost->update(['status' => 'skipped']);

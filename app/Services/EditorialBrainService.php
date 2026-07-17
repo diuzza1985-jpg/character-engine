@@ -60,9 +60,9 @@ class EditorialBrainService
      *   la soglia configurata (character_editorial_settings.max_giorni_silenzio) — in quel caso
      *   "non_pubblicare" smette di essere un'opzione valida per questo ciclo.
      */
-    public function decide(Character $character, array $context, bool $forcePublish = false, ?int $daysSinceLastPost = null, ?int $maxGiorniSilenzio = null): array
+    public function decide(Character $character, array $context, bool $forcePublish = false, ?int $daysSinceLastPost = null, ?int $maxGiorniSilenzio = null, ?string $instructions = null): array
     {
-        $prompt = $this->buildPrompt($character, $context, $forcePublish, $daysSinceLastPost, $maxGiorniSilenzio);
+        $prompt = $this->buildPrompt($character, $context, $forcePublish, $daysSinceLastPost, $maxGiorniSilenzio, $instructions);
 
         $response = Http::withToken(config('services.openai.key'))
             ->timeout(120)
@@ -98,9 +98,9 @@ class EditorialBrainService
         return $data;
     }
 
-    public function lastPrompt(Character $character, array $context, bool $forcePublish = false, ?int $daysSinceLastPost = null, ?int $maxGiorniSilenzio = null): string
+    public function lastPrompt(Character $character, array $context, bool $forcePublish = false, ?int $daysSinceLastPost = null, ?int $maxGiorniSilenzio = null, ?string $instructions = null): string
     {
-        return $this->buildPrompt($character, $context, $forcePublish, $daysSinceLastPost, $maxGiorniSilenzio);
+        return $this->buildPrompt($character, $context, $forcePublish, $daysSinceLastPost, $maxGiorniSilenzio, $instructions);
     }
 
     private function validate(array $data, bool $forcePublish = false): void
@@ -116,7 +116,7 @@ class EditorialBrainService
         }
     }
 
-    private function buildPrompt(Character $character, array $context, bool $forcePublish = false, ?int $daysSinceLastPost = null, ?int $maxGiorniSilenzio = null): string
+    private function buildPrompt(Character $character, array $context, bool $forcePublish = false, ?int $daysSinceLastPost = null, ?int $maxGiorniSilenzio = null, ?string $instructions = null): string
     {
         $oggi = $context['oggi'];
         $documentation = $context['bible'] !== '' ? $context['bible'] : 'Nessuna sezione di bible trovata.';
@@ -126,6 +126,9 @@ class EditorialBrainService
         $relazioni = $this->formatRelazioni($context['relazioni_rilevanti']);
         $contenutiRecenti = $this->formatContenutiRecenti($context['contenuti_recenti']);
         $vitaRecente = $this->formatVitaRecente($context['vita_recente']);
+        $istruzioniSpecifiche = ($instructions !== null && trim($instructions) !== '')
+            ? "\n" . $this->buildInstructionsParagraph($instructions) . "\n"
+            : '';
         $regolaSilenzio = $forcePublish
             ? "\n" . $this->buildForcedParagraph($character, $daysSinceLastPost, $maxGiorniSilenzio) . "\n"
             : '';
@@ -163,7 +166,7 @@ Questi numeri non escono mai all'esterno così come sono. Possono trasparire sol
 
 === VITA RECENTE (eventi già vissuti, pubblicati o no) ===
 {$vitaRecente}
-{$regolaSilenzio}
+{$istruzioniSpecifiche}{$regolaSilenzio}
 === IL TUO COMPITO ===
 {$compitoIntro}
 
@@ -188,6 +191,22 @@ TXT;
 === REGOLA DI OGGI: LA PUBBLICAZIONE NON È OPZIONALE ===
 {$tempoTrascorso}, oltre la soglia di silenzio consentita per questo personaggio ({$maxGiorniSilenzio} giorni). Oggi {$character->name} DEVE pubblicare qualcosa: "non_pubblicare" non è più una scelta disponibile per questo ciclo.
 Questo non significa forzare un contenuto a caso: scegli comunque l'idea più onesta e meno forzata che riesci a trovare tra tutto quello che sai di {$character->name} — anche una story minimale o un pensiero breve vanno benissimo. L'obiettivo è restare presente, non riempire il vuoto con qualcosa di finto.
+TXT;
+    }
+
+    /**
+     * Istruzioni dal pannello di programmazione (ScheduledPost.instructions): indirizzano il
+     * CONTENUTO, non forzano la pubblicazione — quel meccanismo resta solo il pavimento di
+     * silenzio (buildForcedParagraph). Stesso principio già usato in
+     * PromptBuilder::buildInstructionsSection() per la pipeline legacy: guida secondaria,
+     * subordinata all'identità del personaggio.
+     */
+    private function buildInstructionsParagraph(string $instructions): string
+    {
+        return <<<TXT
+=== ISTRUZIONI SPECIFICHE PER OGGI (dal pannello di programmazione) ===
+"{$instructions}"
+Tienile in forte considerazione nella scelta del contenuto e della storyline, ma resta comunque libero di valutare se pubblicare o no in base allo stato del personaggio — a meno che il pavimento di pubblicazione (giorni di silenzio) sopra non renda comunque obbligatoria la pubblicazione oggi.
 TXT;
     }
 

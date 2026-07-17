@@ -138,7 +138,7 @@ class GenerateInstagramPostJob implements ShouldQueue
         Character $character, EditorialCycleService $editorialCycle,
         ReferenceImageSelector $referenceSelector, FalImageService $fal
     ): ?Post {
-        $result = $editorialCycle->run($character);
+        $result = $editorialCycle->run($character, $this->instructions);
 
         if (! $result['decision']) {
             throw new RuntimeException($result['generation']->output['error'] ?? 'Cervello editoriale fallito.');

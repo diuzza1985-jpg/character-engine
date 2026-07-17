@@ -23,9 +23,12 @@ class EditorialCycleService
     ) {}
 
     /**
+     * @param ?string $instructions istruzioni specifiche del giorno (es. da ScheduledPost.instructions
+     *   quando lo slot viene da un panello di programmazione) — indirizzano il contenuto, non
+     *   forzano la pubblicazione (quello resta solo max_giorni_silenzio).
      * @return array{generation: Generation, decision: array|null, editorial_decision: EditorialDecision|null, post: Post|null}
      */
-    public function run(Character $character): array
+    public function run(Character $character, ?string $instructions = null): array
     {
         $settings = CharacterEditorialSettings::firstOrCreate(
             ['character_id' => $character->id],
@@ -52,7 +55,7 @@ class EditorialCycleService
         ]);
 
         try {
-            $decision = $this->brain->decide($character, $context, $forcePublish, $daysSinceLastPost, $settings->max_giorni_silenzio);
+            $decision = $this->brain->decide($character, $context, $forcePublish, $daysSinceLastPost, $settings->max_giorni_silenzio, $instructions);
         } catch (Throwable $e) {
             Log::warning("Ciclo editoriale fallito per {$character->slug}: {$e->getMessage()}");
             $generation->update([

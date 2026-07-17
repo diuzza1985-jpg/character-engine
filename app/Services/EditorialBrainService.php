@@ -13,7 +13,7 @@ use RuntimeException;
  */
 class EditorialBrainService
 {
-    private const REQUIRED_FIELDS = ['decisione', 'motivazione', 'formato', 'idea', 'testo', 'prompt_immagine', 'storyline_da_aggiornare', 'used_news'];
+    private const REQUIRED_FIELDS = ['decisione', 'motivazione', 'formato', 'idea', 'testo', 'prompt_immagine', 'carousel_slides', 'storyline_da_aggiornare', 'used_news'];
 
     /**
      * $forcePublish=true restringe l'enum di "decisione" alla sola "pubblica": non è il testo
@@ -32,14 +32,16 @@ class EditorialBrainService
                     'enum' => $forcePublish ? ['pubblica'] : ['pubblica', 'non_pubblicare'],
                 ],
                 'motivazione' => ['type' => 'string'],
-                // "carousel" volutamente escluso (11.13/12.4): la pipeline immagine esistente
-                // sa produrre solo overlay quote-card da 8-10 parole per slide, incompatibili
-                // con le idee narrative lunghe che questo servizio scrive. Meglio che il
-                // cervello editoriale non proponga mai un formato che sappiamo rotto.
-                'formato' => ['type' => ['string', 'null'], 'enum' => ['post', 'reel', 'story', null]],
+                'formato' => ['type' => ['string', 'null'], 'enum' => ['post', 'carousel', 'reel', 'story', null]],
                 'idea' => ['type' => 'string'],
                 'testo' => ['type' => ['string', 'null']],
                 'prompt_immagine' => ['type' => ['string', 'null']],
+                // Riabilitato (12.4/11.15): non un secondo prompt immagine per slide (la pipeline
+                // esistente genera comunque UNA sola foto base, ImageTextOverlayService::overlay()
+                // sovrappone testo diverso per ogni slide), ma frasi brevi in stile quote-card —
+                // stesso formato già usato con successo dalla pipeline legacy
+                // (PromptBuilder::buildInstagramPostPrompt, campo carousel_slides).
+                'carousel_slides' => ['type' => ['array', 'null'], 'items' => ['type' => 'string']],
                 'storyline_da_aggiornare' => [
                     'type' => ['object', 'null'],
                     'additionalProperties' => false,
@@ -114,6 +116,11 @@ class EditorialBrainService
         if (! in_array($data['decisione'], $allowedDecisioni, true)) {
             throw new RuntimeException("Valore non valido per decisione: {$data['decisione']}");
         }
+        // Stesso principio di 11.13: meglio fallire qui che pubblicare un carousel incompleto
+        // (PublishInstagramPostJob richiede comunque almeno 2 slide per il container Instagram).
+        if ($data['decisione'] === 'pubblica' && $data['formato'] === 'carousel' && count($data['carousel_slides'] ?? []) < 2) {
+            throw new RuntimeException('Formato carousel richiede almeno 2 carousel_slides, ricevute: ' . count($data['carousel_slides'] ?? []));
+        }
     }
 
     private function buildPrompt(Character $character, array $context, bool $forcePublish = false, ?int $daysSinceLastPost = null, ?int $maxGiorniSilenzio = null, ?string $instructions = null): string
@@ -171,10 +178,11 @@ Questi numeri non escono mai all'esterno così come sono. Possono trasparire sol
 {$compitoIntro}
 
 {$istruzioniPubblicazione}
-- scegli il formato più adatto all'idea (post, reel o story), non il più comodo
+- scegli il formato più adatto all'idea (post, carousel, reel o story), non il più comodo
 - il testo/caption deve sembrare scritto da una persona reale, mai da un assistente AI, coerente con documentazione e stato interno
 - puoi proporre l'aggiornamento di UNA storyline con storyline_da_aggiornare, ma solo se il contenuto di oggi la fa avanzare davvero (non per il solo fatto di nominarla): storyline_id deve essere uno di quelli elencati sopra, mai un ID inventato; nuovo_stato è uno tra dormiente/aperta/in_pausa/risolta/abbandonata ("risolta" = chiusura con un finale soddisfacente, "abbandonata" = lasciata cadere senza un vero finale, "in_pausa" = si ferma ma resta aperta); se non stai aggiornando nessuna storyline, storyline_da_aggiornare deve essere null
-- prompt_immagine descrive la scena per un futuro generatore di immagini (tu non generi l'immagine): in inglese, concreto (soggetto, ambientazione, luce, inquadratura), coerente col profilo visivo sopra, senza testo da sovrapporre nell'immagine
+- prompt_immagine descrive la scena per un futuro generatore di immagini (tu non generi l'immagine): in inglese, concreto (soggetto, ambientazione, luce, inquadratura), coerente col profilo visivo sopra, senza testo da sovrapporre nell'immagine — anche per un carousel è UNA sola foto: le slide condividono la stessa immagine, con testo diverso sovrapposto sopra
+- se scegli il formato "carousel": carousel_slides contiene da 3 a 5 frasi brevi (massimo 8-10 parole ciascuna), in italiano, pensate per essere lette sovrapposte alla foto come in un carosello "quote card" — devono avere un filo narrativo comune legato all'idea di oggi, essere leggibili a colpo d'occhio, senza hashtag o emoji dentro il testo della frase; testo resta la caption normale sotto il post (come per qualunque altro formato), distinta dalle frasi sovrapposte — non ripetere lì il contenuto delle slide. Per qualunque formato diverso da "carousel", carousel_slides deve essere null
 - used_news è sempre false per ora: le notizie non sono ancora collegate a questo flusso
 
 Restituisci ESCLUSIVAMENTE il JSON conforme allo schema fornito. Non usare markdown, non usare \`\`\`json, non aggiungere testo prima o dopo.

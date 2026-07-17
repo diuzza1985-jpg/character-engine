@@ -53,7 +53,7 @@ class GenerateInstagramPostJob implements ShouldQueue
         $character = Character::findOrFail($this->characterId);
 
         if ($this->useEditorialBrain) {
-            return $this->handleEditorialBrainFlow($character, $editorialCycle, $referenceSelector, $fal);
+            return $this->handleEditorialBrainFlow($character, $editorialCycle, $referenceSelector, $fal, $overlay);
         }
 
         return $this->handleLegacyFlow(
@@ -136,7 +136,7 @@ class GenerateInstagramPostJob implements ShouldQueue
      */
     private function handleEditorialBrainFlow(
         Character $character, EditorialCycleService $editorialCycle,
-        ReferenceImageSelector $referenceSelector, FalImageService $fal
+        ReferenceImageSelector $referenceSelector, FalImageService $fal, ImageTextOverlayService $overlay
     ): ?Post {
         $result = $editorialCycle->run($character, $this->instructions);
 
@@ -159,16 +159,24 @@ class GenerateInstagramPostJob implements ShouldQueue
             $imagePath = "generations/{$character->tenant_id}/{$character->id}/" . now()->format('Ymd_His') . '_' . Str::random(6) . '.png';
             Storage::disk('local')->put($imagePath, $imageResult['binary']);
 
+            // Carousel (12.4/11.15): stessa UNICA foto base della pipeline legacy, con testo
+            // diverso sovrapposto per slide via ImageTextOverlayService — non un'immagine per
+            // slide. buildCarouselSlides() è lo stesso metodo già usato dal percorso legacy.
+            $mediaPaths = $result['decision']['formato'] === 'carousel'
+                ? $this->buildCarouselSlides($overlay, $character, $imageResult['binary'], $result['decision']['carousel_slides'])
+                : [$imagePath];
+
             $timelineEntry = TimelineEntry::create([
                 'character_id' => $character->id,
                 'storyline_id' => $result['editorial_decision']->storyline_id,
                 'title' => $result['decision']['idea'],
             ]);
 
-            $result['post']->update(['media_urls' => [$imagePath]]);
+            $result['post']->update(['media_urls' => $mediaPaths]);
 
             $result['generation']->update(['output' => array_merge($result['generation']->output, [
                 'image_path' => $imagePath,
+                'media_paths' => $mediaPaths,
                 'seed' => $imageResult['seed'],
                 'reference_asset_id' => $reference->id,
                 'timeline_entry_id' => $timelineEntry->id,

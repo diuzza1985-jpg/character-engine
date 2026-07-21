@@ -149,19 +149,33 @@ class GenerateInstagramPostJob implements ShouldQueue
         }
 
         try {
-            $reference = $referenceSelector->pick($character);
-            if (! $reference) {
-                throw new RuntimeException("Nessun asset di riferimento trovato per {$character->name}.");
-            }
+            $isOggetto = $result['decision']['formato'] === 'oggetto';
 
-            $imageResult = $fal->generate($result['decision']['prompt_immagine'], self::CERVELLO_NEGATIVE_PROMPT, $reference);
+            // Rinforzo il negative prompt solo per "oggetto": più affidabile di contare solo
+            // sull'istruzione positiva nel prompt_immagine (che il cervello editoriale scrive da
+            // solo, quindi può comunque sbagliare).
+            $negativePrompt = $isOggetto
+                ? self::CERVELLO_NEGATIVE_PROMPT . ', person, human, face, body, portrait'
+                : self::CERVELLO_NEGATIVE_PROMPT;
+
+            // "oggetto" usa un modello generico senza reference (generateStandalone, sezione 2.2):
+            // generate() è legato a fal-ai/ideogram/character, pensato per PRESERVARE il personaggio
+            // — l'opposto di quello che serve qui. $reference resta null in questo ramo, quindi
+            // 'reference_asset_id' più sotto sarà null per i post "oggetto" (atteso, non un bug).
+            if ($isOggetto) {
+                $reference = null;
+                $imageResult = $fal->generateStandalone($result['decision']['prompt_immagine'], $negativePrompt);
+            } else {
+                $reference = $referenceSelector->pick($character);
+                if (! $reference) {
+                    throw new RuntimeException("Nessun asset di riferimento trovato per {$character->name}.");
+                }
+                $imageResult = $fal->generate($result['decision']['prompt_immagine'], $negativePrompt, $reference);
+            }
 
             $imagePath = "generations/{$character->tenant_id}/{$character->id}/" . now()->format('Ymd_His') . '_' . Str::random(6) . '.png';
             Storage::disk('local')->put($imagePath, $imageResult['binary']);
 
-            // Carousel (12.4/11.15): stessa UNICA foto base della pipeline legacy, con testo
-            // diverso sovrapposto per slide via ImageTextOverlayService — non un'immagine per
-            // slide. buildCarouselSlides() è lo stesso metodo già usato dal percorso legacy.
             $mediaPaths = $result['decision']['formato'] === 'carousel'
                 ? $this->buildCarouselSlides($overlay, $character, $imageResult['binary'], $result['decision']['carousel_slides'])
                 : [$imagePath];
@@ -178,13 +192,10 @@ class GenerateInstagramPostJob implements ShouldQueue
                 'image_path' => $imagePath,
                 'media_paths' => $mediaPaths,
                 'seed' => $imageResult['seed'],
-                'reference_asset_id' => $reference->id,
+                'reference_asset_id' => $reference?->id, // null per "oggetto": nessuna reference selezionata in quel ramo
                 'timeline_entry_id' => $timelineEntry->id,
             ])]);
         } catch (Throwable $e) {
-            // La decisione editoriale resta valida (generations/editorial_decisions già
-            // completi): qui è fallita solo la generazione immagine, quindi si segna il post
-            // (non la generation, che documenta correttamente una decisione presa).
             $result['post']->update(['status' => 'failed']);
             throw $e;
         }

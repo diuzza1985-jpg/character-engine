@@ -15,12 +15,7 @@ class EditorialBrainService
 {
     private const REQUIRED_FIELDS = ['decisione', 'motivazione', 'formato', 'idea', 'testo', 'prompt_immagine', 'carousel_slides', 'storyline_da_aggiornare', 'used_news'];
 
-    /**
-     * $forcePublish=true restringe l'enum di "decisione" alla sola "pubblica": non è il testo
-     * del prompt a "convincere" il modello, è lo schema stesso (strict mode) a rendere
-     * impossibile un'altra risposta — stesso principio già usato per il resto dell'output.
-     */
-    private function buildResponseSchema(bool $forcePublish): array
+    private function buildResponseSchema(bool $forcePublish, bool $diarioDisponibile = true): array
     {
         return [
             'type' => 'object',
@@ -32,15 +27,13 @@ class EditorialBrainService
                     'enum' => $forcePublish ? ['pubblica'] : ['pubblica', 'non_pubblicare'],
                 ],
                 'motivazione' => ['type' => 'string'],
-                'formato' => ['type' => ['string', 'null'], 'enum' => ['post', 'carousel', 'reel', 'story', null]],
+                'formato' => [
+                    'type' => ['string', 'null'],
+                    'enum' => $this->formatoEnum($diarioDisponibile),
+                ],
                 'idea' => ['type' => 'string'],
                 'testo' => ['type' => ['string', 'null']],
                 'prompt_immagine' => ['type' => ['string', 'null']],
-                // Riabilitato (12.4/11.15): non un secondo prompt immagine per slide (la pipeline
-                // esistente genera comunque UNA sola foto base, ImageTextOverlayService::overlay()
-                // sovrappone testo diverso per ogni slide), ma frasi brevi in stile quote-card —
-                // stesso formato già usato con successo dalla pipeline legacy
-                // (PromptBuilder::buildInstagramPostPrompt, campo carousel_slides).
                 'carousel_slides' => ['type' => ['array', 'null'], 'items' => ['type' => 'string']],
                 'storyline_da_aggiornare' => [
                     'type' => ['object', 'null'],
@@ -58,13 +51,35 @@ class EditorialBrainService
     }
 
     /**
+     * 'oggetto' è sempre disponibile: zero nuova infrastruttura, solo un prompt diverso (nessun
+     * personaggio in scena). 'diario' invece è centellinato — non più di una volta ogni N post
+     * (character_editorial_settings.diario_ogni_n_post, calcolato da EditorialCycleService, sezione
+     * 3) — stesso principio già in uso per il pavimento di pubblicazione (11.12): è lo schema a
+     * impedire l'abuso, non un'istruzione testuale che il modello potrebbe non rispettare sempre.
+     */
+    private function formatoEnum(bool $diarioDisponibile): array
+    {
+        $enum = ['post', 'carousel', 'reel', 'story', 'oggetto', null];
+        if ($diarioDisponibile) {
+            $enum[] = 'diario';
+        }
+        return $enum;
+    }
+    /**
      * @param bool $forcePublish true quando i giorni di silenzio del personaggio hanno superato
      *   la soglia configurata (character_editorial_settings.max_giorni_silenzio) — in quel caso
      *   "non_pubblicare" smette di essere un'opzione valida per questo ciclo.
      */
-    public function decide(Character $character, array $context, bool $forcePublish = false, ?int $daysSinceLastPost = null, ?int $maxGiorniSilenzio = null, ?string $instructions = null): array
-    {
-        $prompt = $this->buildPrompt($character, $context, $forcePublish, $daysSinceLastPost, $maxGiorniSilenzio, $instructions);
+    public function decide(
+        Character $character,
+        array $context,
+        bool $forcePublish = false,
+        ?int $daysSinceLastPost = null,
+        ?int $maxGiorniSilenzio = null,
+        ?string $instructions = null,
+        bool $diarioDisponibile = true,
+    ): array {
+        $prompt = $this->buildPrompt($character, $context, $forcePublish, $daysSinceLastPost, $maxGiorniSilenzio, $instructions, $diarioDisponibile);
 
         $response = Http::withToken(config('services.openai.key'))
             ->timeout(120)
@@ -78,7 +93,7 @@ class EditorialBrainService
                     'json_schema' => [
                         'name' => 'decisione_editoriale',
                         'strict' => true,
-                        'schema' => $this->buildResponseSchema($forcePublish),
+                        'schema' => $this->buildResponseSchema($forcePublish, $diarioDisponibile),
                     ],
                 ],
             ])
@@ -100,9 +115,16 @@ class EditorialBrainService
         return $data;
     }
 
-    public function lastPrompt(Character $character, array $context, bool $forcePublish = false, ?int $daysSinceLastPost = null, ?int $maxGiorniSilenzio = null, ?string $instructions = null): string
-    {
-        return $this->buildPrompt($character, $context, $forcePublish, $daysSinceLastPost, $maxGiorniSilenzio, $instructions);
+    public function lastPrompt(
+        Character $character,
+        array $context,
+        bool $forcePublish = false,
+        ?int $daysSinceLastPost = null,
+        ?int $maxGiorniSilenzio = null,
+        ?string $instructions = null,
+        bool $diarioDisponibile = true,
+    ): string {
+        return $this->buildPrompt($character, $context, $forcePublish, $daysSinceLastPost, $maxGiorniSilenzio, $instructions, $diarioDisponibile);
     }
 
     private function validate(array $data, bool $forcePublish = false): void
@@ -123,8 +145,15 @@ class EditorialBrainService
         }
     }
 
-    private function buildPrompt(Character $character, array $context, bool $forcePublish = false, ?int $daysSinceLastPost = null, ?int $maxGiorniSilenzio = null, ?string $instructions = null): string
-    {
+   private function buildPrompt(
+        Character $character,
+        array $context,
+        bool $forcePublish = false,
+        ?int $daysSinceLastPost = null,
+        ?int $maxGiorniSilenzio = null,
+        ?string $instructions = null,
+        bool $diarioDisponibile = true,
+    ): string {
         $oggi = $context['oggi'];
         $documentation = $context['bible'] !== '' ? $context['bible'] : 'Nessuna sezione di bible trovata.';
         $visualProfile = $this->formatVisualProfile($context['profilo_visivo']);
@@ -143,6 +172,7 @@ class EditorialBrainService
             ? "Decidi cosa pubblica oggi {$character->name}: la regola sopra rende \"pubblica\" l'unica decisione possibile per questo ciclo, quindi il tuo compito è trovare l'idea più onesta possibile, non decidere se pubblicare."
             : "Decidi se oggi {$character->name} pubblica qualcosa o no.\nNon è obbligatorio pubblicare ogni giorno: una persona vera non lo fa. Se lo stato interno, le storyline e i contenuti recenti non offrono niente di genuino da raccontare oggi, \"non_pubblicare\" è una scelta corretta, non un fallimento — in quel caso lascia formato/testo/prompt_immagine a null e spiega comunque in motivazione perché.";
         $istruzioniPubblicazione = $forcePublish ? 'Per l\'idea di oggi:' : 'Se decidi di pubblicare:';
+        $formatiDisponibili = $this->describeFormatOptions($diarioDisponibile);
 
         return <<<TXT
 Sei il cervello editoriale di {$character->name}.
@@ -177,16 +207,40 @@ Questi numeri non escono mai all'esterno così come sono. Possono trasparire sol
 === IL TUO COMPITO ===
 {$compitoIntro}
 
-{$istruzioniPubblicazione}
-- scegli il formato più adatto all'idea (post, carousel, reel o story), non il più comodo
-- il testo/caption deve sembrare scritto da una persona reale, mai da un assistente AI, coerente con documentazione e stato interno
-- puoi proporre l'aggiornamento di UNA storyline con storyline_da_aggiornare, ma solo se il contenuto di oggi la fa avanzare davvero (non per il solo fatto di nominarla): storyline_id deve essere uno di quelli elencati sopra, mai un ID inventato; nuovo_stato è uno tra dormiente/aperta/in_pausa/risolta/abbandonata ("risolta" = chiusura con un finale soddisfacente, "abbandonata" = lasciata cadere senza un vero finale, "in_pausa" = si ferma ma resta aperta); se non stai aggiornando nessuna storyline, storyline_da_aggiornare deve essere null
-- prompt_immagine descrive la scena per un futuro generatore di immagini (tu non generi l'immagine): in inglese, concreto (soggetto, ambientazione, luce, inquadratura), coerente col profilo visivo sopra, senza testo da sovrapporre nell'immagine — anche per un carousel è UNA sola foto: le slide condividono la stessa immagine, con testo diverso sovrapposto sopra
-- se scegli il formato "carousel": carousel_slides contiene da 3 a 5 frasi brevi (massimo 8-10 parole ciascuna), in italiano, pensate per essere lette sovrapposte alla foto come in un carosello "quote card" — devono avere un filo narrativo comune legato all'idea di oggi, essere leggibili a colpo d'occhio, senza hashtag o emoji dentro il testo della frase; testo resta la caption normale sotto il post (come per qualunque altro formato), distinta dalle frasi sovrapposte — non ripetere lì il contenuto delle slide. Per qualunque formato diverso da "carousel", carousel_slides deve essere null
-- used_news è sempre false per ora: le notizie non sono ancora collegate a questo flusso
+    {$istruzioniPubblicazione}
+    - scegli il formato più adatto all'idea, non il più comodo. Opzioni disponibili oggi: {$formatiDisponibili}
+    - il testo/caption deve sembrare scritto da una persona reale, mai da un assistente AI, coerente con documentazione e stato interno
+    - puoi proporre l'aggiornamento di UNA storyline con storyline_da_aggiornare, ma solo se il contenuto di oggi la fa avanzare davvero (non per il solo fatto di nominarla): storyline_id deve essere uno di quelli elencati sopra, mai un ID inventato; nuovo_stato è uno tra dormiente/aperta/in_pausa/risolta/abbandonata ("risolta" = chiusura con un finale soddisfacente, "abbandonata" = lasciata cadere senza un vero finale, "in_pausa" = si ferma ma resta aperta); se non stai aggiornando nessuna storyline, storyline_da_aggiornare deve essere null
+    - prompt_immagine descrive la scena per un futuro generatore di immagini (tu non generi l'immagine): in inglese, concreto (soggetto, ambientazione, luce, inquadratura), coerente col profilo visivo sopra, senza testo da sovrapporre nell'immagine — anche per un carousel è UNA sola foto: le slide condividono la stessa immagine, con testo diverso sovrapposto sopra
+    - se scegli il formato "carousel": carousel_slides contiene da 3 a 5 frasi brevi (massimo 8-10 parole ciascuna), in italiano, pensate per essere lette sovrapposte alla foto come in un carosello "quote card" — devono avere un filo narrativo comune legato all'idea di oggi, essere leggibili a colpo d'occhio, senza hashtag o emoji dentro il testo della frase; testo resta la caption normale sotto il post (come per qualunque altro formato), distinta dalle frasi sovrapposte — non ripetere lì il contenuto delle slide. Per qualunque formato diverso da "carousel", carousel_slides deve essere null
+    - se scegli il formato "oggetto": prompt_immagine descrive SOLO un oggetto o un dettaglio della scena, esplicitamente SENZA persone nell'inquadratura — deve essere qualcosa di specificamente legato a {$character->name}, dedotto dalla bible e dal profilo visivo sopra (non un oggetto generico che andrebbe bene per qualsiasi personaggio: guarda cosa emerge davvero dalla sua documentazione, dalla sua vita recente, dal suo mondo — può essere qualunque cosa, dipende solo da chi è lui/lei); testo (la caption) resta breve, quasi assente, lascia parlare l'immagine invece di spiegarla
+    - se scegli il formato "diario": testo è un pensiero breve in prima persona, tono riflessivo e privato, frasi semplici, NESSUN hashtag e NESSUNA call-to-action — non è un contenuto promozionale, è più vicino a una pagina scritta per sé che qualcuno ha visto per caso; prompt_immagine descrive uno sfondo quieto coerente con lo stato interno di oggi, non serve un primo piano del personaggio
+    - used_news è sempre false per ora: le notizie non sono ancora collegate a questo flusso
 
 Restituisci ESCLUSIVAMENTE il JSON conforme allo schema fornito. Non usare markdown, non usare \`\`\`json, non aggiungere testo prima o dopo.
 TXT;
+    }
+
+    /**
+     * Elenco leggibile delle opzioni di formato per il prompt — riflette esattamente lo stesso
+     * enum passato allo schema strutturato (formatoEnum), così testo e vincolo tecnico non
+     * possono mai disallinearsi.
+     */
+    private function describeFormatOptions(bool $diarioDisponibile): string
+    {
+        $options = [
+            'post (foto singola, il default)',
+            'carousel (più slide con lo stesso filo narrativo)',
+            'reel',
+            'story',
+            'oggetto (un dettaglio della sua vita, specifico per questo personaggio e dedotto dalla sua documentazione — non il personaggio in scena, ma qualcosa che lo racconta indirettamente)',
+        ];
+
+        if ($diarioDisponibile) {
+            $options[] = 'diario (un pensiero breve e privato, quasi ad alta voce — usalo con parsimonia, è un registro raro, non il tono di tutti i giorni)';
+        }
+
+        return implode(', ', $options);
     }
 
     private function buildForcedParagraph(Character $character, ?int $daysSinceLastPost, ?int $maxGiorniSilenzio): string

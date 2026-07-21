@@ -147,7 +147,7 @@ class EditorialContextBuilder
             ->get()
             ->map(fn (Post $p) => [
                 'data' => $p->created_at->toDateString(),
-                'formato' => $p->media_type,
+                'formato' => $p->narrative_format ?? $p->media_type,
                 'stato' => $p->status,
                 'estratto_caption' => $p->caption ? Str::limit($p->caption, 120) : null,
             ])

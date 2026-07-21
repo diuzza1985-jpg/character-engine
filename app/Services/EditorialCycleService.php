@@ -32,16 +32,25 @@ class EditorialCycleService
     {
         $settings = CharacterEditorialSettings::firstOrCreate(
             ['character_id' => $character->id],
-            ['max_giorni_silenzio' => 2]
+            ['max_giorni_silenzio' => 2, 'diario_ogni_n_post' => 20] // <-- diario_ogni_n_post aggiunto qui per esplicitezza; il default DB (20, sezione 2.1) copre comunque i record creati da altre strade
         );
 
-        // Contiamo da created_at, non da published_at: la pubblicazione Instagram reale non è
-        // ancora collegata a questo percorso (sezione 9/11.11), quindi published_at sarebbe
-        // sempre nullo nei test — rivedere questo punto quando la pubblicazione sarà collegata.
         $lastPost = Post::where('character_id', $character->id)->latest('created_at')->first();
         $daysSinceLastPost = $lastPost ? (int) $lastPost->created_at->diffInDays(now()) : null;
-        // Nessun post mai creato conta come silenzio "infinito": supera qualunque soglia finita.
         $forcePublish = $daysSinceLastPost === null || $daysSinceLastPost > $settings->max_giorni_silenzio;
+
+        // Diario centellinato (character_editorial_settings.diario_ogni_n_post): mai fatto un
+        // diario -> sempre disponibile, altrimenti conta i post pubblicati dopo l'ultimo.
+        $lastDiarioPost = Post::where('character_id', $character->id)
+            ->where('narrative_format', 'diario')
+            ->latest('created_at')
+            ->first();
+
+        $postsSinceLastDiario = $lastDiarioPost
+            ? Post::where('character_id', $character->id)->where('created_at', '>', $lastDiarioPost->created_at)->count()
+            : PHP_INT_MAX; // mai fatto un diario -> sempre disponibile
+
+        $diarioDisponibile = $postsSinceLastDiario >= $settings->diario_ogni_n_post;
 
         $context = $this->contextBuilder->build($character);
 
@@ -55,7 +64,7 @@ class EditorialCycleService
         ]);
 
         try {
-            $decision = $this->brain->decide($character, $context, $forcePublish, $daysSinceLastPost, $settings->max_giorni_silenzio, $instructions);
+            $decision = $this->brain->decide($character, $context, $forcePublish, $daysSinceLastPost, $settings->max_giorni_silenzio, $instructions, $diarioDisponibile);
         } catch (Throwable $e) {
             Log::warning("Ciclo editoriale fallito per {$character->slug}: {$e->getMessage()}");
             $generation->update([
@@ -94,6 +103,7 @@ class EditorialCycleService
                 'generation_id' => $generation->id,
                 'platform' => 'instagram',
                 'media_type' => $this->mapFormatoToMediaType($decision['formato']),
+                'narrative_format' => $decision['formato'],
                 'status' => 'draft',
                 'caption' => $decision['testo'] ?? '',
                 'media_urls' => [],
@@ -125,8 +135,9 @@ class EditorialCycleService
 
     private function mapFormatoToMediaType(?string $formato): string
     {
-        // Lo schema esposto a OpenAI usa "post" (più naturale nel prompt); posts.media_type
-        // usa invece "image" come da convenzione già in uso (vedi GenerateInstagramPostJob).
-        return $formato === 'post' ? 'image' : ($formato ?? 'image');
+        // "post", "diario" e "oggetto" sono tutti immagine singola per Instagram — la differenza
+        // narrativa tra loro vive in narrative_format, non in media_type. carousel/reel/story restano
+        // distinti perché richiedono davvero un trattamento diverso in pubblicazione.
+        return in_array($formato, ['post', 'diario', 'oggetto'], true) ? 'image' : ($formato ?? 'image');
     }
 }

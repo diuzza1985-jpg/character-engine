@@ -71,6 +71,7 @@ class FalImageService
             'negative_prompt' => $negativePrompt,
             'image_size' => 'portrait_4_3',
             'num_inference_steps' => 28,
+            'output_format' => 'png',
             'seed' => random_int(1, 999999999),
         ];
 

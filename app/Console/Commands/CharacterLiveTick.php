@@ -154,6 +154,11 @@ class CharacterLiveTick extends Command
             'title' => $lifeEvent->title,
             // 'scene' resta vuoto qui di proposito: la descrizione in linguaggio naturale è un
             // TODO, arriverà da una chiamata GPT batch notturna (vedi LifeEventOccurred sotto).
+
+            // --- nuovo, Fase 1 motore di memoria ---
+            'memorability' => $lifeEvent->weight !== null
+                ? min(1.0, $lifeEvent->weight / config('life_engine.memory.life_event_weight_scale'))
+                : null,
         ]);
 
         LifeEventOccurred::dispatch($timelineEntry);

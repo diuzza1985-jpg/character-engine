@@ -184,6 +184,7 @@ class GenerateInstagramPostJob implements ShouldQueue
                 'character_id' => $character->id,
                 'storyline_id' => $result['editorial_decision']->storyline_id,
                 'title' => $result['decision']['idea'],
+                'memorability' => $result['editorial_decision']->storyline?->importance,
             ]);
 
             $result['post']->update(['media_urls' => $mediaPaths]);

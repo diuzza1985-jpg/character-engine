@@ -17,4 +17,32 @@ return [
 
     // 11.6 — finestra di conteggio per i drives derivati dalla category dei life_events.
     'drives_lookback_days' => 60,
+
+    'memory' => [
+        // life_events.weight (unsignedInteger, default 50, usato come peso relativo in
+        // LifeEventSelector::weightedPick()) normalizzato a una scala 0-1 per memorability.
+        'life_event_weight_scale' => 100,
+
+        // Sotto questa soglia in giorni, un evento non può ancora essere "un ricordo"
+        'minimo_giorni' => 30,
+
+        // Finestra di massima probabilità di richiamo (plateau)
+        'ottimo_inizio_giorni' => 75,
+        'ottimo_fine_giorni' => 120,
+
+        // Oltre questa soglia il punteggio scende al floor, ma il ricordo resta
+        // disponibile (bassa priorità), non sparisce mai del tutto
+        'massimo_giorni' => 365,
+        'floor_oltre_massimo' => 0.15,
+
+        // Penalità se lo stesso ricordo è già stato richiamato di recente
+        'giorni_minimi_tra_richiami' => 60,
+        'penalita_per_richiamo_precedente' => 0.5, // moltiplicatore, si applica per ogni referenced_count
+
+        // Punteggio minimo sotto il quale un candidato non viene nemmeno proposto al cervello editoriale
+        'soglia_minima_punteggio' => 0.15,
+
+        // Quanti candidati "ricordo" passare al massimo a EditorialContextBuilder
+        'candidati_max' => 3,
+    ],
 ];

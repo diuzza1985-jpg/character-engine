@@ -18,6 +18,12 @@ class EditorialContextBuilder
     private const MAX_RELATIONSHIPS = 5;
     private const MAX_RECENT_POSTS = 12;
     private const MAX_RECENT_TIMELINE = 15;
+    private const MAX_MEMORIES = 3;
+
+    public function __construct(
+        private readonly MemoryRecallSelector $memoryRecallSelector,
+    ) {
+    }
 
     public function build(Character $character): array
     {
@@ -39,6 +45,7 @@ class EditorialContextBuilder
             'relazioni_rilevanti' => $this->buildRelevantRelationships($character),
             'contenuti_recenti' => $this->buildRecentPosts($character),
             'vita_recente' => $this->buildRecentTimeline($character),
+            'possibili_ricordi' => $this->buildRelevantMemories($character),
         ];
     }
 
@@ -164,6 +171,27 @@ class EditorialContextBuilder
                 'titolo' => $t->title,
                 'topic' => $t->topic,
                 'giorni_fa' => (int) $t->created_at->diffInDays(now()),
+            ])
+            ->all();
+    }
+
+    /**
+     * Eventi passati sopra la soglia di "vale la pena ricordarlo oggi" (MemoryRecallSelector).
+     * Non è un obbligo per il cervello editoriale: è materiale disponibile, come le storyline
+     * con pressione alta — la decisione se usarlo resta qualitativa (sezione 2.1 del documento
+     * "motore di memoria narrativa").
+     */
+    private function buildRelevantMemories(Character $character): array
+    {
+        return $this->memoryRecallSelector->candidatesFor($character)
+            ->take(self::MAX_MEMORIES)
+            ->map(fn (array $c) => [
+                'id' => $c['entry']->id,
+                'titolo' => $c['entry']->title,
+                'topic' => $c['entry']->topic,
+                'scena' => $c['entry']->scene,
+                'giorni_fa' => $c['giorni_trascorsi'],
+                'punteggio' => round($c['punteggio'], 2),
             ])
             ->all();
     }

@@ -1,7 +1,5 @@
 <?php
-
 namespace App\Providers\Filament;
-
 use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\AuthenticateSession;
 use Filament\Http\Middleware\DisableBladeIconComponents;
@@ -18,7 +16,6 @@ use Illuminate\Foundation\Http\Middleware\PreventRequestForgery;
 use Illuminate\Routing\Middleware\SubstituteBindings;
 use Illuminate\Session\Middleware\StartSession;
 use Illuminate\View\Middleware\ShareErrorsFromSession;
-
 class AiadminPanelProvider extends PanelProvider
 {
     public function panel(Panel $panel): Panel
@@ -28,6 +25,9 @@ class AiadminPanelProvider extends PanelProvider
             ->id('aiadmin')
             ->path('aiadmin')
             ->login()
+            ->brandLogo(asset('images/logo-horizontal.png'))
+            ->brandLogoHeight('100px')
+            ->favicon(asset('images/logo-square.png'))
             ->colors([
                 'primary' => Color::Amber,
             ])

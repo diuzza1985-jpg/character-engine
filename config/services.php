@@ -1,7 +1,5 @@
 <?php
-
 return [
-
     /*
     |--------------------------------------------------------------------------
     | Third Party Services
@@ -13,26 +11,37 @@ return [
     | a conventional file to locate the various service credentials.
     |
     */
-
     'postmark' => [
         'key' => env('POSTMARK_API_KEY'),
     ],
-
     'resend' => [
         'key' => env('RESEND_API_KEY'),
     ],
-
     'ses' => [
         'key' => env('AWS_ACCESS_KEY_ID'),
         'secret' => env('AWS_SECRET_ACCESS_KEY'),
         'region' => env('AWS_DEFAULT_REGION', 'us-east-1'),
     ],
-
     'slack' => [
         'notifications' => [
             'bot_user_oauth_token' => env('SLACK_BOT_USER_OAUTH_TOKEN'),
             'channel' => env('SLACK_BOT_USER_DEFAULT_CHANNEL'),
         ],
     ],
-
+    'openai' => [
+        'key' => env('OPENAI_API_KEY'),
+        'text_model' => env('OPENAI_TEXT_MODEL', 'gpt-5.5'),
+    ],
+    'fal' => [
+        'key' => env('FAL_API_KEY'),
+        'model' => env('FAL_MODEL', 'fal-ai/flux-pro/kontext'),
+    ],
+    'instagram' => [
+        'app_id' => env('INSTAGRAM_APP_ID'),
+        'app_secret' => env('INSTAGRAM_APP_SECRET'),
+        'redirect_uri' => env('INSTAGRAM_REDIRECT_URI'),
+    ],
+    'newsdata' => [
+        'key' => env('NEWSDATA_API_KEY'),
+    ],
 ];

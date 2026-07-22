@@ -9,10 +9,7 @@ class Generation extends Model
 {
     use HasFactory;
 
-    protected $fillable = [
-        'character_id', 'tenant_id', 'purpose', 'status', 'input',
-        'output', 'provider_costs', 'credits_charged', 'credit_ledger_id', 'completed_at',
-    ];
+    protected $fillable = ['character_id', 'tenant_id', 'purpose', 'status', 'input', 'output', 'provider_costs', 'credits_charged', 'credit_ledger_id', 'completed_at'];
 
     protected function casts(): array
     {

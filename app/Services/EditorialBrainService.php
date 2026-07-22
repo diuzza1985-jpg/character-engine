@@ -59,7 +59,13 @@ class EditorialBrainService
      */
     private function formatoEnum(bool $diarioDisponibile): array
     {
-        $enum = ['post', 'carousel', 'reel', 'story', 'oggetto', null];
+        // "reel" volutamente escluso (sez. 12.5, stesso principio di 11.13 per carousel):
+        // non esiste alcuna pipeline di generazione video dietro questa opzione, solo
+        // FalImageService (text-to-image). Il cervello editoriale lo decideva ma il sistema
+        // pubblicava comunque una singola immagine statica come post normale, senza errori
+        // né log — un gap silenzioso end-to-end. Meglio che il cervello non proponga mai un
+        // formato che sappiamo rotto, finché una vera pipeline video non esiste.
+        $enum = ['post', 'carousel', 'story', 'oggetto', null];
         if ($diarioDisponibile) {
             $enum[] = 'diario';
         }
@@ -233,7 +239,6 @@ TXT;
         $options = [
             'post (foto singola, il default)',
             'carousel (più slide con lo stesso filo narrativo)',
-            'reel',
             'story',
             'oggetto (un dettaglio della sua vita, specifico per questo personaggio e dedotto dalla sua documentazione — non il personaggio in scena, ma qualcosa che lo racconta indirettamente)',
         ];

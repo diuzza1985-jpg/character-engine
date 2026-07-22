@@ -149,6 +149,12 @@ class GenerateInstagramPostJob implements ShouldQueue
         }
 
         try {
+            // Nessun ramo dedicato per formato "reel" qui sotto: il cervello editoriale non può
+            // più deciderlo (sez. 12.5, EditorialBrainService::formatoEnum) perché non esiste una
+            // pipeline di generazione video, solo FalImageService (text-to-image). Se "reel"
+            // arriva comunque fin qui (record storico, o formatoEnum toccato senza una vera
+            // pipeline video pronta), ricade nell'else sotto e produce una singola immagine
+            // statica come un post normale — comportamento invariato, non un fix.
             $isOggetto = $result['decision']['formato'] === 'oggetto';
 
             // Rinforzo il negative prompt solo per "oggetto": più affidabile di contare solo

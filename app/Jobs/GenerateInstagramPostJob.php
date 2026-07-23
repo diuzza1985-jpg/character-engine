@@ -206,6 +206,20 @@ class GenerateInstagramPostJob implements ShouldQueue
 
             if ($result['decision']['formato'] === 'story') {
                 $imageBinary = $storyComposer->compose($imageBinary, $result['decision']['testo'] ?? '');
+            } elseif ($result['decision']['formato'] === 'post' && trim($result['decision']['testo_overlay'] ?? '') !== '') {
+                // Immagine singola "nuda" (senza overlay) era il formato più debole nei dati di
+                // mercato (analisi 21/07, sez. 2): stesso trattamento quote-card già usato per le
+                // slide del carousel, ma con una sola frase (testo_overlay, distinta dalla caption
+                // in "testo"). La guardia in EditorialBrainService::validate() dovrebbe già
+                // impedire un testo_overlay vuoto qui, ma se mai capitasse (record storico, o
+                // quella guardia rimossa in futuro) meglio degradare a post senza overlay che
+                // rompere la generazione.
+                $imageBinary = $overlay->overlay($imageBinary, $result['decision']['testo_overlay']);
+            } elseif ($result['decision']['formato'] === 'screenshot') {
+                // Screenshot di conversazione simulata (analisi 21/07, sez. 3 opzione A): stesso
+                // principio di "story"/"post" sopra, un overlay diverso (bolle di chat) sulla
+                // stessa immagine di base, nessuna generazione Fal.ai aggiuntiva.
+                $imageBinary = $overlay->overlayChatBubbles($imageBinary, $result['decision']['messaggi_chat'] ?? []);
             }
 
             $imagePath = "generations/{$character->tenant_id}/{$character->id}/" . now()->format('Ymd_His') . '_' . Str::random(6) . '.png';

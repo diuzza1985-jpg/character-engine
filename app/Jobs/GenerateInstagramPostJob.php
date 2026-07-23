@@ -15,6 +15,7 @@ use App\Services\NewsDigestService;
 use App\Services\OpenAiTextService;
 use App\Services\PromptBuilder;
 use App\Services\ReferenceImageSelector;
+use App\Services\StoryComposerService;
 use App\Support\TemporalContext;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -58,12 +59,12 @@ class GenerateInstagramPostJob implements ShouldQueue
         LifeEventSelector $lifeEventSelector, PromptBuilder $promptBuilder, OpenAiTextService $openAi,
         ImagePromptBuilder $imagePromptBuilder, ReferenceImageSelector $referenceSelector,
         FalImageService $fal, ImageTextOverlayService $overlay, NewsDigestService $newsDigest,
-        EditorialCycleService $editorialCycle
+        EditorialCycleService $editorialCycle, StoryComposerService $storyComposer
     ): ?Post {
         $character = Character::findOrFail($this->characterId);
 
         if ($this->useEditorialBrain) {
-            return $this->handleEditorialBrainFlow($character, $editorialCycle, $referenceSelector, $fal, $overlay);
+            return $this->handleEditorialBrainFlow($character, $editorialCycle, $referenceSelector, $fal, $overlay, $storyComposer);
         }
 
         return $this->handleLegacyFlow(
@@ -146,7 +147,8 @@ class GenerateInstagramPostJob implements ShouldQueue
      */
     private function handleEditorialBrainFlow(
         Character $character, EditorialCycleService $editorialCycle,
-        ReferenceImageSelector $referenceSelector, FalImageService $fal, ImageTextOverlayService $overlay
+        ReferenceImageSelector $referenceSelector, FalImageService $fal, ImageTextOverlayService $overlay,
+        StoryComposerService $storyComposer
     ): ?Post {
         $result = $editorialCycle->run($character, $this->instructions);
 
@@ -194,8 +196,20 @@ class GenerateInstagramPostJob implements ShouldQueue
                 $imageResult = $fal->generate($result['decision']['prompt_immagine'], $negativePrompt, $reference);
             }
 
+            // Formato "story": fino a qui l'immagine generata e' la stessa foto 4:5 di un post
+            // normale. Componiamo in verticale 9:16 con StoryComposerService (stesso trattamento
+            // gia' usato dall'altra pipeline story, GenerateNewsStoryJob), usando come testo la
+            // caption della decisione del cervello editoriale ("testo") invece di un commento a
+            // una notizia. Se "testo" e' vuoto, StoryComposerService produce comunque un canvas
+            // verticale valido, solo senza testo sovrapposto.
+            $imageBinary = $imageResult['binary'];
+
+            if ($result['decision']['formato'] === 'story') {
+                $imageBinary = $storyComposer->compose($imageBinary, $result['decision']['testo'] ?? '');
+            }
+
             $imagePath = "generations/{$character->tenant_id}/{$character->id}/" . now()->format('Ymd_His') . '_' . Str::random(6) . '.png';
-            Storage::disk('local')->put($imagePath, $imageResult['binary']);
+            Storage::disk('local')->put($imagePath, $imageBinary);
 
             $mediaPaths = $result['decision']['formato'] === 'carousel'
                 ? $this->buildCarouselSlides($overlay, $character, $imageResult['binary'], $result['decision']['carousel_slides'])

@@ -15,6 +15,7 @@ use App\Services\NewsDigestService;
 use App\Services\OpenAiTextService;
 use App\Services\PromptBuilder;
 use App\Services\ReferenceImageSelector;
+use App\Support\TemporalContext;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -37,6 +38,15 @@ class GenerateInstagramPostJob implements ShouldQueue
     // scena-specifici: il cervello editoriale non produce uno scene[] strutturato, solo un
     // prompt_immagine libero (stessa scelta già presa per la pubblicazione di Post#13, 11.13).
     private const CERVELLO_NEGATIVE_PROMPT = 'AI artifacts, extra fingers, plastic skin, fashion pose, luxury house, gaming setup, random stickers, different pets';
+    // Stessi termini stagionali di ImagePromptBuilder::negativePrompt() (12.6): l'istruzione
+    // positiva sulla stagione nel prompt del cervello editoriale (9a48fae) è scritta da GPT, che
+    // può comunque sbagliare — stesso principio già applicato al rinforzo "no person" di
+    // "oggetto" qui sotto. Prima di questo fix il cervello editoriale non aveva alcun backstop
+    // lato negative prompt contro capi fuori stagione, a differenza della pipeline legacy.
+    private const SEASONAL_NEGATIVE_TERMS = [
+        'estate' => ['heavy sweater', 'wool jacket', 'winter coat', 'long sleeves', 'turtleneck'],
+        'inverno' => ['short sleeves', 'tank top', 'summer dress'],
+    ];
     public function __construct(
         private int $characterId,
         private string $postType = 'image',
@@ -157,12 +167,17 @@ class GenerateInstagramPostJob implements ShouldQueue
             // statica come un post normale — comportamento invariato, non un fix.
             $isOggetto = $result['decision']['formato'] === 'oggetto';
 
-            // Rinforzo il negative prompt solo per "oggetto": più affidabile di contare solo
-            // sull'istruzione positiva nel prompt_immagine (che il cervello editoriale scrive da
-            // solo, quindi può comunque sbagliare).
-            $negativePrompt = $isOggetto
-                ? self::CERVELLO_NEGATIVE_PROMPT . ', person, human, face, body, portrait'
-                : self::CERVELLO_NEGATIVE_PROMPT;
+            // Rinforzo il negative prompt sia per stagione (12.6) sia per "oggetto": più
+            // affidabile di contare solo sull'istruzione positiva nel prompt_immagine (che il
+            // cervello editoriale scrive da solo, quindi può comunque sbagliare).
+            $negativePrompt = self::CERVELLO_NEGATIVE_PROMPT;
+            $seasonalTerms = self::SEASONAL_NEGATIVE_TERMS[TemporalContext::season()] ?? [];
+            if ($seasonalTerms) {
+                $negativePrompt .= ', ' . implode(', ', $seasonalTerms);
+            }
+            if ($isOggetto) {
+                $negativePrompt .= ', person, human, face, body, portrait';
+            }
 
             // "oggetto" usa un modello generico senza reference (generateStandalone, sezione 2.2):
             // generate() è legato a fal-ai/ideogram/character, pensato per PRESERVARE il personaggio

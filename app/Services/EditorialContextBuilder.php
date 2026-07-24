@@ -6,7 +6,6 @@ use App\Models\Post;
 use App\Models\Storyline;
 use App\Models\TimelineEntry;
 use App\Support\TemporalContext;
-use Illuminate\Support\Str;
 
 /**
  * Assembla in una struttura unica tutto ciò che serve al cervello editoriale (11.7) per decidere
@@ -146,6 +145,12 @@ class EditorialContextBuilder
             ->all();
     }
 
+    /**
+     * Testo pieno della caption, non un estratto (era Str::limit(..., 120) fino a poco fa):
+     * un bersaglio comico o un dettaglio da non ripetere finisce tipicamente in fondo alla
+     * caption (la punchline), non nei primi 120 caratteri — un estratto corto rendeva
+     * impossibile per il cervello editoriale accorgersi di battute già fatte di recente.
+     */
     private function buildRecentPosts(Character $character): array
     {
         return $character->posts()
@@ -156,7 +161,7 @@ class EditorialContextBuilder
                 'data' => $p->created_at->toDateString(),
                 'formato' => $p->narrative_format ?? $p->media_type,
                 'stato' => $p->status,
-                'estratto_caption' => $p->caption ? Str::limit($p->caption, 120) : null,
+                'caption' => $p->caption ?: null,
             ])
             ->all();
     }

@@ -221,7 +221,8 @@ Questi numeri non escono mai all'esterno così come sono. Possono trasparire sol
 === RELAZIONI RECENTI ===
 {$relazioni}
 
-=== CONTENUTI GIÀ PUBBLICATI DI RECENTE (non ripetere formato/argomento) ===
+=== CONTENUTI GIÀ PUBBLICATI DI RECENTE (testo completo delle caption) ===
+Prima di scegliere una battuta o un bersaglio comico per oggi, controlla se hai già scherzato su un argomento simile in uno di questi post recenti — se sì, scegline un altro invece di tornare sempre sul più ovvio. Vale anche in generale: non ripetere formato/argomento appena pubblicati.
 {$contenutiRecenti}
 
 === VITA RECENTE (eventi già vissuti, pubblicati o no) ===
@@ -352,8 +353,8 @@ TXT;
 
         $lines = [];
         foreach ($contenuti as $c) {
-            $estratto = $c['estratto_caption'] ?? '(senza testo)';
-            $lines[] = "- {$c['data']} | {$c['formato']} | {$c['stato']} | {$estratto}";
+            $caption = $c['caption'] ?? '(senza testo)';
+            $lines[] = "- {$c['data']} | {$c['formato']} | {$c['stato']} | {$caption}";
         }
 
         return implode("\n", $lines);

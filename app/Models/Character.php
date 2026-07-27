@@ -67,4 +67,18 @@ class Character extends Model
     {
         return $this->hasOne(CharacterEditorialSettings::class);
     }
+    public function draft()
+    {
+        return $this->hasOne(CharacterDraft::class);
+    }
+    /** Parentele create da questo personaggio verso altri (es. Sofia -> Fernando "marito"). */
+    public function kinships()
+    {
+        return $this->hasMany(CharacterKinship::class);
+    }
+    /** Parentele create da altri personaggi verso questo (per mostrare l'etichetta invertita). */
+    public function kinshipsAsRelated()
+    {
+        return $this->hasMany(CharacterKinship::class, 'related_character_id');
+    }
 }

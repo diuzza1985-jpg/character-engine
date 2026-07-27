@@ -19,6 +19,10 @@ use App\Livewire\CharacterCreationWizard;
 
 Route::get('/crea-personaggio', CharacterCreationWizard::class)->name('character.create');
 
+Route::get('/personaggi/{character}/modifica', CharacterCreationWizard::class)
+    ->middleware('auth')
+    ->name('character.edit');
+
 use App\Http\Controllers\Auth\RegisterController;
 
 Route::get('/registrati', [RegisterController::class, 'create'])->name('register');
@@ -29,8 +33,13 @@ use App\Http\Controllers\Auth\LoginController;
 Route::get('/accedi', [LoginController::class, 'create'])->name('login');
 Route::post('/accedi', [LoginController::class, 'store'])->name('login.store');
 
-use App\Livewire\CharacterPanel;
+use App\Livewire\CharacterList;
+use App\Livewire\CharacterDetail;
 
-Route::get('/il-mio-personaggio', CharacterPanel::class)
+Route::get('/personaggi', CharacterList::class)
     ->middleware('auth')
     ->name('character.panel');
+
+Route::get('/personaggi/{character}', CharacterDetail::class)
+    ->middleware('auth')
+    ->name('character.show');

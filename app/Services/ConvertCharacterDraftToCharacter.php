@@ -6,59 +6,97 @@ use App\Models\Character;
 use App\Models\CharacterBibleSection;
 use App\Models\CharacterDraft;
 use App\Models\CharacterEditorialSettings;
+use App\Models\CharacterRelationship;
 use App\Models\CharacterVisualProfile;
 use Illuminate\Support\Str;
 
 /**
- * Trasforma una CharacterDraft (questionario pubblico, utente anonimo) in un Character reale,
- * al momento della registrazione. Genera testo prosa per le sezioni bible a partire dai campi
- * strutturati raccolti nel wizard — nessun refactor di EditorialContextBuilder per leggere dati
- * strutturati (fuori scope, spec tecnica §7): più veloce e meno rischioso produrre qui la stessa
- * forma di prosa che il motore già si aspetta (stesso stile della bible di Sofia).
+ * Trasforma una CharacterDraft in un Character reale — sia alla prima registrazione sia, da
+ * loggato, ogni volta che il questionario viene riaperto e risalvato (draft.character_id
+ * valorizzato): in quel caso aggiorna il Character esistente invece di crearne uno nuovo
+ * (update-in-place), perché la bozza resta la fonte strutturata canonica per tutta la vita del
+ * personaggio, non un artefatto usa-e-getta pre-registrazione. Genera testo prosa per le sezioni
+ * bible a partire dai campi strutturati — nessun refactor di EditorialContextBuilder per leggere
+ * dati strutturati (fuori scope, spec tecnica §7): più veloce e meno rischioso produrre qui la
+ * stessa forma di prosa che il motore già si aspetta (stesso stile della bible di Sofia).
  */
 class ConvertCharacterDraftToCharacter
 {
     public function convert(CharacterDraft $draft, int $tenantId): Character
     {
-        $character = Character::create([
-            'tenant_id' => $tenantId,
-            'name' => $draft->name,
-            'one_liner' => $draft->one_liner,
-            'slug' => $this->uniqueSlug($draft->name),
-            'status' => 'draft',
-        ]);
+        $character = $draft->character_id
+            ? Character::findOrFail($draft->character_id)
+            : new Character();
 
-        CharacterEditorialSettings::create([
-            'character_id' => $character->id,
-            'max_giorni_silenzio' => 2,
-            'diario_ogni_n_post' => 20,
-            'goal' => $draft->goal,
-            'goal_secondary' => $draft->goal_secondary,
-            'target_audience' => $draft->target_audience,
-            'niche' => $draft->niche,
-        ]);
+        $character->tenant_id = $tenantId;
+        $character->name = $draft->name;
+        $character->one_liner = $draft->one_liner;
+        if (! $character->exists) {
+            $character->slug = $this->uniqueSlug($draft->name);
+            $character->status = 'draft';
+        }
+        $character->save();
 
-        CharacterVisualProfile::create([
-            'character_id' => $character->id,
-            'age_description' => $this->ageDescription($draft),
-            'face_description' => $this->faceDescription($draft),
-            'hair_description' => $this->hairDescription($draft),
-            'wardrobe_notes' => $draft->style_archetype,
-            'visual_rules_text' => $draft->distinguishing_detail,
-        ]);
+        // firstOrNew, non updateOrCreate: max_giorni_silenzio/diario_ogni_n_post sono tarabili
+        // solo da admin Filament, non fanno parte del questionario — un riepilogo (update-in-place)
+        // non deve mai riportarli ai default se erano già stati personalizzati.
+        $settings = CharacterEditorialSettings::firstOrNew(['character_id' => $character->id]);
+        if (! $settings->exists) {
+            $settings->max_giorni_silenzio = 2;
+            $settings->diario_ogni_n_post = 20;
+        }
+        $settings->goal = $draft->goal;
+        $settings->goal_secondary = $draft->goal_secondary;
+        $settings->target_audience = $draft->target_audience;
+        $settings->niche = $draft->niche;
+        $settings->save();
+
+        CharacterVisualProfile::updateOrCreate(
+            ['character_id' => $character->id],
+            [
+                'age_description' => $this->ageDescription($draft),
+                'face_description' => $this->faceDescription($draft),
+                'hair_description' => $this->hairDescription($draft),
+                'wardrobe_notes' => $draft->style_archetype,
+                'visual_rules_text' => $draft->distinguishing_detail,
+            ]
+        );
 
         foreach ($this->bibleSections($draft) as $sectionKey => $content) {
-            CharacterBibleSection::create([
+            $section = CharacterBibleSection::firstOrNew([
                 'character_id' => $character->id,
                 'section_key' => $sectionKey,
-                'content' => $content,
-                'version' => 1,
             ]);
+            $section->content = $content;
+            $section->version = ($section->version ?? 0) + 1;
+            $section->save();
         }
 
-        $draft->update(['status' => 'convertito', 'tenant_id' => $tenantId]);
+        $this->syncKeyRelationships($character, $draft);
+
+        $draft->update(['status' => 'convertito', 'tenant_id' => $tenantId, 'character_id' => $character->id]);
 
         return $character;
+    }
+
+    /**
+     * "Relazioni chiave" dell'Approfondimento (nome/relazione/tratto) alimentano
+     * CharacterRelationship — lo stesso modello narrativo già popolato dal motore di vita
+     * (CharacterLiveTick), finora mai da input utente diretto.
+     */
+    private function syncKeyRelationships(Character $character, CharacterDraft $draft): void
+    {
+        foreach ($draft->key_relationships ?? [] as $relazione) {
+            $nome = trim($relazione['nome'] ?? '');
+            if ($nome === '') {
+                continue;
+            }
+
+            CharacterRelationship::updateOrCreate(
+                ['character_id' => $character->id, 'name' => $nome],
+                ['type' => $relazione['relazione'] ?? null, 'notes' => $relazione['tratto'] ?? null]
+            );
+        }
     }
 
     private function uniqueSlug(string $name): string
@@ -108,6 +146,7 @@ class ConvertCharacterDraftToCharacter
             'umorismo' => $this->umorismoSection($draft),
             'famiglia' => $this->famigliaSection($draft),
             'regole' => $this->regoleSection($draft),
+            'biografia' => $this->biografiaSection($draft),
         ];
     }
 
@@ -206,6 +245,44 @@ TXT;
 
 {$draft->name} non affronta mai in nessun contenuto: {$limits}.
 TXT;
+    }
+
+    /**
+     * Da "Approfondimento" (solo utenti autenticati, spec tecnica del questionario §
+     * Approfondimento) — sezione bible mai usata finora ("biografia", 16° section_key).
+     * Ogni blocco è facoltativo: un personaggio senza Approfondimento compilato ottiene
+     * comunque una sezione valida, non vuota.
+     */
+    private function biografiaSection(CharacterDraft $draft): string
+    {
+        $parts = [];
+
+        if ($draft->backstory) {
+            $parts[] = "# Storia personale\n\n{$draft->backstory}";
+        }
+        if ($draft->life_goals) {
+            $parts[] = "# Sogni e obiettivi\n\n{$draft->life_goals}";
+        }
+        if (! empty($draft->fears)) {
+            $parts[] = '# Paure e insicurezze' . "\n\n" . implode(', ', $draft->fears) . '.';
+        }
+        if (! empty($draft->hobbies)) {
+            $parts[] = '# Hobby' . "\n\n" . implode(', ', $draft->hobbies) . '.';
+        }
+        if (! empty($draft->dietary_habits)) {
+            $parts[] = '# Abitudini alimentari' . "\n\n" . implode(', ', $draft->dietary_habits) . '.';
+        }
+        if (! empty($draft->typical_phrases)) {
+            $phrases = implode("\n", array_map(fn ($p) => "- \"{$p}\"", $draft->typical_phrases));
+            $parts[] = "# Frasi tipiche\n\n{$phrases}";
+        }
+        if (! empty($draft->hyper_specific_details)) {
+            $parts[] = '# Dettagli iper-specifici' . "\n\n" . implode(', ', $draft->hyper_specific_details) . '.';
+        }
+
+        return $parts
+            ? implode("\n\n", $parts)
+            : "# Storia personale\n\nNessun dettaglio di approfondimento fornito ancora.";
     }
 
     private function scaleLabel(?int $value, string $low, string $mid, string $high): string

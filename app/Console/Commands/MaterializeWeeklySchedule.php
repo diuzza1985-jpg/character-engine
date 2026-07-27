@@ -11,7 +11,13 @@ class MaterializeWeeklySchedule extends Command
     public function handle(): int
     {
         $daysAhead = (int) $this->option('days');
-        $slots = WeeklyScheduleSlot::where('enabled', true)->get();
+        // Un personaggio "salvato"/in pausa (status diverso da 'active') non deve mai pubblicare
+        // in automatico, anche se ha uno slot ricorrente abilitato — prima di questo controllo
+        // il filtro esisteva solo in CharacterLiveTick (e solo nel path senza argomento), non
+        // nell'intera pipeline reale di pubblicazione (gap scoperto in fase di analisi).
+        $slots = WeeklyScheduleSlot::where('enabled', true)
+            ->whereHas('character', fn ($q) => $q->where('status', 'active'))
+            ->get();
         if ($slots->isEmpty()) {
             $this->info('Nessuno slot settimanale abilitato.');
             return self::SUCCESS;

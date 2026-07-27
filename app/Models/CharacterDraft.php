@@ -11,7 +11,7 @@ class CharacterDraft extends Model
     use HasFactory, HasUuids;
 
     protected $fillable = [
-        'session_token', 'tenant_id',
+        'session_token', 'tenant_id', 'character_id',
         'goal', 'goal_secondary', 'target_audience', 'niche',
         'name', 'role', 'one_liner', 'living_situation', 'pets', 'environment',
         'traits', 'core_values', 'dislikes',
@@ -19,6 +19,8 @@ class CharacterDraft extends Model
         'humor_level', 'joke_targets', 'humor_safe_topics', 'content_safe_limits',
         'age_range', 'presentation', 'style_archetype', 'hair_color', 'hair_style',
         'eye_color', 'body_type', 'nose_detail', 'mouth_detail', 'distinguishing_detail',
+        'dietary_habits', 'hobbies', 'life_goals', 'fears', 'backstory',
+        'key_relationships', 'typical_phrases', 'hyper_specific_details',
         'status', 'expires_at',
     ];
 
@@ -37,6 +39,12 @@ class CharacterDraft extends Model
             'communication_formality' => 'integer',
             'communication_verbosity' => 'integer',
             'communication_directness' => 'integer',
+            'dietary_habits' => 'array',
+            'hobbies' => 'array',
+            'fears' => 'array',
+            'key_relationships' => 'array',
+            'typical_phrases' => 'array',
+            'hyper_specific_details' => 'array',
             'expires_at' => 'datetime',
         ];
     }
@@ -44,5 +52,10 @@ class CharacterDraft extends Model
     public function tenant()
     {
         return $this->belongsTo(Tenant::class);
+    }
+
+    public function character()
+    {
+        return $this->belongsTo(Character::class);
     }
 }

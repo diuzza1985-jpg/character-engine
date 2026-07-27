@@ -23,13 +23,13 @@
             </svg>
         </div>
 
-        <h2>{{ ['intro'=>'Ciao! Costruiamo il tuo personaggio','why'=>'Sto prendendo forma...','identity'=>'Quasi pronto per un nome','personality'=>'Carattere in costruzione','voice'=>'Sto trovando la mia voce','humor'=>'Un pizzico di personalità in più','appearance'=>'Quasi finito','summary'=>'Eccomi, sono definito!'][$step] }}</h2>
-        <p class="flavor">{{ ['intro'=>'Rispondi a poche domande veloci: mi trasformerò passo dopo passo in un personaggio vero, con una voce tutta sua.','why'=>'Obiettivo, pubblico e argomenti: sono le fondamenta di tutto il resto.','humor'=>'Anche "mai scherzare" è una scelta di carattere, non una casella vuota.','summary'=>'Non generato ancora — solo pronto, quando vorrai.'][$step] ?? 'Ogni risposta rende il personaggio un po\' più definito.' }}</p>
+        <h2>{{ ['intro'=>'Ciao! Costruiamo il tuo personaggio','why'=>'Sto prendendo forma...','identity'=>'Quasi pronto per un nome','personality'=>'Carattere in costruzione','voice'=>'Sto trovando la mia voce','humor'=>'Un pizzico di personalità in più','appearance'=>'Quasi finito','approfondimento'=>'Ancora più a fuoco','summary'=>'Eccomi, sono definito!'][$step] }}</h2>
+        <p class="flavor">{{ ['intro'=>'Rispondi a poche domande veloci: mi trasformerò passo dopo passo in un personaggio vero, con una voce tutta sua.','why'=>'Obiettivo, pubblico e argomenti: sono le fondamenta di tutto il resto.','humor'=>'Anche "mai scherzare" è una scelta di carattere, non una casella vuota.','approfondimento'=>'Tutto facoltativo — puoi farlo con calma anche più avanti.','summary'=>'Non generato ancora — solo pronto, quando vorrai.'][$step] ?? 'Ogni risposta rende il personaggio un po\' più definito.' }}</p>
 
         @if($step !== 'intro')
             <div class="progress-list">
                 @foreach(array_slice($steps, 1) as $i => $s)
-                    @php($labels = ['why'=>'Perché esiste','identity'=>'Identità','personality'=>'Personalità','voice'=>'Come comunica','humor'=>'Umorismo','appearance'=>'Aspetto','summary'=>'Riepilogo'])
+                    @php($labels = ['why'=>'Perché esiste','identity'=>'Identità','personality'=>'Personalità','voice'=>'Come comunica','humor'=>'Umorismo','appearance'=>'Aspetto','approfondimento'=>'Approfondimento','summary'=>'Riepilogo'])
                     @php($idx = $i + 1)
                     <div class="progress-item @if($idx < $stepIndex) done @elseif($idx === $stepIndex) active @endif">
                         <span class="progress-dot">{{ $idx < $stepIndex ? '✓' : $idx }}</span> {{ $labels[$s] }}
@@ -67,7 +67,7 @@
             get canProceed() { return this.goal && this.niche.length >= 2 },
         }">
             <div class="card">
-                <p class="eyebrow">Step 1 di 7</p>
+                <p class="eyebrow">Step 1 di {{ count($steps) - 2 }}</p>
                 <h1>Perché esiste questo personaggio?</h1>
                 <p class="subtitle">È la domanda che conta di più: influenza il tono, gli argomenti e le scelte di tutto il resto del percorso.</p>
 
@@ -104,7 +104,11 @@
                 ]" />
 
                 <div class="actions">
-                    <button class="btn-ghost" wire:click="$set('step', 'intro')">← Indietro</button>
+                    @if($editingCharacter)
+                        <a href="{{ route('character.panel') }}" class="btn-ghost">← Torna al menu</a>
+                    @else
+                        <button class="btn-ghost" wire:click="$set('step', 'intro')">← Indietro</button>
+                    @endif
                     <button class="btn-primary" :disabled="!canProceed" x-on:click="$wire.nextStep('why', 'identity', { goal, goalSecondary, targetAudience, niche })">Avanti →</button>
                 </div>
             </div>
@@ -119,7 +123,7 @@
             get canProceed() { return this.name && this.oneLiner },
         }">
             <div class="card">
-                <p class="eyebrow">Step 2 di 7</p>
+                <p class="eyebrow">Step 2 di {{ count($steps) - 2 }}</p>
                 <h1>Chi è questo personaggio?</h1>
                 <p class="subtitle">L'identità di base: come si chiama e come si presenterebbe in una frase.</p>
 
@@ -135,7 +139,7 @@
                 ]" />
                 <x-wizard.text-input model="role" placeholder="Oppure scrivi tu il ruolo" :maxlength="255" />
 
-                <x-wizard.field-label hint="Max ~120 caratteri, es. &quot;Sviluppatrice che vive di caffè e debug notturni&quot;.">In una frase, chi è</x-wizard.field-label>
+                <x-wizard.field-label hint="Max ~120 caratteri, es. “Sviluppatrice che vive di caffè e debug notturni”.">In una frase, chi è</x-wizard.field-label>
                 <x-wizard.text-input model="oneLiner" placeholder="Es. Sviluppatrice che vive di caffè e debug notturni" :maxlength="120" />
                 <div class="helper-suggest" x-on:click="oneLiner = ['Vive tra caffè, scadenze e piccole vittorie quotidiane','Prende tutto sul serio tranne sé stesso/a','Ha sempre una battuta pronta e un piano di riserva'][Math.floor(Math.random()*3)]">✨ Suggeriscimi tu</div>
 
@@ -171,7 +175,7 @@
             get canProceed() { return this.traits.length >= 4 && this.coreValues.length >= 2 && this.dislikes.length >= 2 },
         }">
             <div class="card">
-                <p class="eyebrow">Step 3 di 7</p>
+                <p class="eyebrow">Step 3 di {{ count($steps) - 2 }}</p>
                 <h1>Che carattere ha?</h1>
                 <p class="subtitle">Tratti, valori e antipatie: quello che lo rende riconoscibile nel modo di reagire alle cose.</p>
 
@@ -217,7 +221,7 @@
             get canProceed() { return !!this.emojiUsage },
         }">
             <div class="card">
-                <p class="eyebrow">Step 4 di 7</p>
+                <p class="eyebrow">Step 4 di {{ count($steps) - 2 }}</p>
                 <h1>Come comunica?</h1>
                 <p class="subtitle">Il tono con cui scrive ogni contenuto — non serve scrivere nulla, solo tarare qualche cursore.</p>
 
@@ -246,7 +250,7 @@
             get canProceed() { return this.humorLevel && (this.isSerious || this.jokeTargets.length >= 5) },
         }">
             <div class="card">
-                <p class="eyebrow">Step 5 di 7</p>
+                <p class="eyebrow">Step 5 di {{ count($steps) - 2 }}</p>
                 <h1>Quanto è presente l'ironia?</h1>
                 <p class="subtitle">Nessun problema se la risposta è "mai" — non tutti i personaggi devono scherzare, e il resto del percorso si adatta di conseguenza.</p>
 
@@ -297,7 +301,7 @@
             get canProceed() { return this.ageRange && this.presentation && this.styleArchetype },
         }">
             <div class="card">
-                <p class="eyebrow">Step 6 di 7</p>
+                <p class="eyebrow">Step 6 di {{ count($steps) - 2 }}</p>
                 <h1>Che aspetto ha?</h1>
                 <p class="subtitle">Definiamo solo le caratteristiche: l'immagine vera la genererai quando vorrai, dopo la registrazione.</p>
 
@@ -353,7 +357,77 @@
 
                 <div class="actions">
                     <button class="btn-ghost" wire:click="$set('step', 'humor')">← Indietro</button>
-                    <button class="btn-primary" :disabled="!canProceed" x-on:click="$wire.nextStep('appearance', 'summary', { ageRange, presentation, styleArchetype, hairColor, hairStyle, eyeColor, bodyType, noseDetail, mouthDetail, distinguishingDetail })">Avanti →</button>
+                    <button class="btn-primary" :disabled="!canProceed" x-on:click="$wire.nextStep('appearance', @js(in_array('approfondimento', $steps, true) ? 'approfondimento' : 'summary'), { ageRange, presentation, styleArchetype, hairColor, hairStyle, eyeColor, bodyType, noseDetail, mouthDetail, distinguishingDetail })">Avanti →</button>
+                </div>
+            </div>
+        </div>
+        @endif
+
+        {{-- SCREEN: approfondimento (solo utenti autenticati — mai nel wizard anonimo) --}}
+        @if($step === 'approfondimento')
+        <div class="screen visible" x-data="{
+            dietaryHabits: @js($dietaryHabits), hobbies: @js($hobbies), lifeGoals: @js($lifeGoals),
+            fears: @js($fears), backstory: @js($backstory), keyRelationships: @js($keyRelationships),
+            typicalPhrases: @js($typicalPhrases), hyperSpecificDetails: @js($hyperSpecificDetails),
+            newRelName: '', newRelType: '', newRelTrait: '',
+            addRelationship() {
+                if (!this.newRelName.trim()) return;
+                this.keyRelationships.push({ nome: this.newRelName.trim(), relazione: this.newRelType.trim(), tratto: this.newRelTrait.trim() });
+                this.newRelName = ''; this.newRelType = ''; this.newRelTrait = '';
+            },
+        }">
+            <div class="card">
+                <p class="eyebrow">Approfondimento — facoltativo</p>
+                <h1>Vuoi raccontarmi qualcosa in più?</h1>
+                <p class="subtitle">Niente qui è obbligatorio: puoi saltare tutto e tornarci con calma quando vuoi, dal menu dei tuoi personaggi. I dettagli molto specifici contano più di qualunque tratto generico per renderlo credibile.</p>
+
+                <x-wizard.field-label counter-expr="'facoltativo'">Abitudini alimentari</x-wizard.field-label>
+                <x-wizard.chip-row model="dietaryHabits" :allow-custom="true" :items="[
+                    ['value'=>'Ama i dolci','label'=>'Ama i dolci'],['value'=>'Caffè compulsivo','label'=>'Caffè compulsivo'],
+                    ['value'=>'Cucina etnica','label'=>'Cucina etnica'],['value'=>'Vegetariano/a','label'=>'Vegetariano/a'],
+                    ['value'=>'Cucina spesso','label'=>'Cucina spesso'],['value'=>'Ordina sempre da asporto','label'=>'Ordina sempre da asporto'],
+                ]" />
+
+                <x-wizard.field-label counter-expr="'facoltativo'">Hobby</x-wizard.field-label>
+                <x-wizard.chip-row model="hobbies" :allow-custom="true" :items="[
+                    ['value'=>'Lettura','label'=>'Lettura'],['value'=>'Sport','label'=>'Sport'],['value'=>'Cucina','label'=>'Cucina'],
+                    ['value'=>'Musica','label'=>'Musica'],['value'=>'Giardinaggio','label'=>'Giardinaggio'],['value'=>'Videogiochi','label'=>'Videogiochi'],
+                ]" />
+
+                <x-wizard.field-label counter-expr="'facoltativo'">Sogni e obiettivi di vita</x-wizard.field-label>
+                <textarea class="text-input" rows="2" x-model="lifeGoals" placeholder="Es. aprire un giorno un piccolo studio tutto suo" style="resize:vertical;"></textarea>
+
+                <x-wizard.field-label counter-expr="'facoltativo'">Paure e insicurezze</x-wizard.field-label>
+                <x-wizard.chip-row model="fears" :allow-custom="true" :items="[
+                    ['value'=>'Paura di deludere','label'=>'Paura di deludere'],['value'=>'Paura del giudizio','label'=>'Paura del giudizio'],
+                    ['value'=>'Paura del fallimento','label'=>'Paura del fallimento'],['value'=>'Paura di restare indietro','label'=>'Paura di restare indietro'],
+                ]" />
+
+                <x-wizard.field-label counter-expr="'facoltativo'">Storia personale</x-wizard.field-label>
+                <textarea class="text-input" rows="3" x-model="backstory" placeholder="Da dove viene, un evento che l'ha formata..." style="resize:vertical;"></textarea>
+
+                <x-wizard.field-label counter-expr="'facoltativo'" hint="Persone/animali importanti che restano solo narrativi, non altri personaggi del sistema (per quello c'è il menu Parentele).">Relazioni chiave</x-wizard.field-label>
+                <template x-for="(rel, idx) in keyRelationships" :key="idx">
+                    <div class="chip" style="margin-bottom:8px; display:flex; align-items:center; gap:8px; width:100%;" x-on:click="keyRelationships.splice(idx, 1)">
+                        <span x-text="rel.nome + (rel.relazione ? ' · ' + rel.relazione : '') + (rel.tratto ? ' · ' + rel.tratto : '')"></span>
+                    </div>
+                </template>
+                <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px;">
+                    <input type="text" class="text-input" style="width:140px;" x-model="newRelName" placeholder="Nome">
+                    <input type="text" class="text-input" style="width:140px;" x-model="newRelType" placeholder="Relazione (es. sorella)">
+                    <input type="text" class="text-input" style="width:180px;" x-model="newRelTrait" placeholder="Un tratto (facoltativo)">
+                    <button type="button" class="chip" x-on:click="addRelationship">+ Aggiungi</button>
+                </div>
+
+                <x-wizard.field-label counter-expr="'facoltativo'">Frasi tipiche</x-wizard.field-label>
+                <x-wizard.chip-row model="typicalPhrases" :items="[]" :allow-custom="true" />
+
+                <x-wizard.field-label counter-expr="'facoltativo'" hint="Dettagli molto concreti, es. “beve il caffè freddo perché si dimentica sempre di berlo caldo”.">Dettagli iper-specifici</x-wizard.field-label>
+                <x-wizard.chip-row model="hyperSpecificDetails" :items="[]" :allow-custom="true" />
+
+                <div class="actions">
+                    <button class="btn-ghost" wire:click="$set('step', 'appearance')">← Indietro</button>
+                    <button class="btn-primary" x-on:click="$wire.nextStep('approfondimento', 'summary', { dietaryHabits, hobbies, lifeGoals, fears, backstory, keyRelationships, typicalPhrases, hyperSpecificDetails })">Avanti →</button>
                 </div>
             </div>
         </div>
@@ -383,11 +457,19 @@
                 </div>
 
                 <div class="hype-box">
-                    <h3>Salva il tuo personaggio</h3>
-                    <p>Serve un account per non perderlo: se non hai ancora effettuato l'accesso ti chiederemo di accedere o registrarti al volo, poi potrai arricchirlo e attivarlo quando vuoi.</p>
-                    <div class="hype-actions">
-                        <button class="btn-primary" wire:click="saveAndContinue">Salva e continua →</button>
-                    </div>
+                    @if($editingCharacter)
+                        <h3>Salva le modifiche</h3>
+                        <p>Aggiorna {{ $editingCharacter->name }} con le risposte appena date — nessun contenuto viene toccato, solo il questionario.</p>
+                        <div class="hype-actions">
+                            <button class="btn-primary" wire:click="saveAndContinue">Salva modifiche →</button>
+                        </div>
+                    @else
+                        <h3>Salva il tuo personaggio</h3>
+                        <p>Serve un account per non perderlo: se non hai ancora effettuato l'accesso ti chiederemo di accedere o registrarti al volo, poi potrai arricchirlo e attivarlo quando vuoi.</p>
+                        <div class="hype-actions">
+                            <button class="btn-primary" wire:click="saveAndContinue">Salva e continua →</button>
+                        </div>
+                    @endif
                 </div>
             </div>
         </div>

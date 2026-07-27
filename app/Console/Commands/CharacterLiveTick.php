@@ -48,6 +48,14 @@ class CharacterLiveTick extends Command
             return collect();
         }
 
+        // Stesso filtro del path automatico: un personaggio "salvato"/in pausa non deve
+        // avanzare comunque perché richiamato esplicitamente per slug/ID (prima di questo
+        // controllo il path manuale ignorava lo stato).
+        if ($character->status !== 'active') {
+            $this->warn("Personaggio \"{$character->name}\" non è attivo (status={$character->status}), tick saltato.");
+            return collect();
+        }
+
         return collect([$character]);
     }
 

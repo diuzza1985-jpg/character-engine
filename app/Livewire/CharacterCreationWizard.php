@@ -2,20 +2,26 @@
 
 namespace App\Livewire;
 
+use App\Models\Character;
 use App\Models\CharacterDraft;
+use App\Services\ConvertCharacterDraftToCharacter;
 use Illuminate\Support\Str;
 use Livewire\Component;
 
 /**
- * Wizard pubblico di creazione personaggio (/crea-personaggio), nessun account richiesto.
+ * Wizard di creazione/modifica personaggio. Due modalità:
+ * - anonima (/crea-personaggio, nessun account): bozza legata a session_token, come alla prima
+ *   consegna.
+ * - modifica (/personaggi/{character}/modifica, autenticato): riapre la STESSA draft collegata
+ *   al Character (draft.character_id), precompilata — l'utente non tocca mai il prompt/prosa
+ *   bible direttamente, solo il questionario strutturato (decisione esplicita, sostituisce il
+ *   pannello con textarea sulla prosa della consegna precedente).
  * Le micro-interazioni (tile/chip/swatch/slider) sono Alpine puro lato client — Livewire entra
  * in gioco solo ai confini di step ("Avanti"), che passa i valori raccolti a nextStep() per
  * validazione server-side e persistenza su character_drafts (spec tecnica §1).
  */
 class CharacterCreationWizard extends Component
 {
-    private const STEPS = ['intro', 'why', 'identity', 'personality', 'voice', 'humor', 'appearance', 'summary'];
-
     // Stessa lista di default già usata nella bible di Sofia per i limiti di sicurezza —
     // precompilata e non deselezionabile lato utente (solo aggiungibile), sia per le battute
     // sia, più in generale, per qualunque contenuto (questionario, sez. 4 e 7).
@@ -23,6 +29,7 @@ class CharacterCreationWizard extends Component
 
     public string $step = 'intro';
     public ?string $draftId = null;
+    public ?Character $editingCharacter = null;
 
     // Perché esiste
     public ?string $goal = null;
@@ -66,8 +73,69 @@ class CharacterCreationWizard extends Component
     public ?string $mouthDetail = null;
     public ?string $distinguishingDetail = null;
 
-    public function mount(): void
+    // Approfondimento (solo utenti autenticati — spec tecnica del questionario, mai in scope
+    // per il wizard anonimo)
+    public array $dietaryHabits = [];
+    public array $hobbies = [];
+    public ?string $lifeGoals = null;
+    public array $fears = [];
+    public ?string $backstory = null;
+    public array $keyRelationships = [];
+    public array $typicalPhrases = [];
+    public array $hyperSpecificDetails = [];
+
+    private function steps(): array
     {
+        $steps = ['intro', 'why', 'identity', 'personality', 'voice', 'humor', 'appearance'];
+        if (auth()->check()) {
+            $steps[] = 'approfondimento';
+        }
+        $steps[] = 'summary';
+
+        return $steps;
+    }
+
+    /**
+     * @param  Character|null  $character  Route model binding su /personaggi/{character}/modifica
+     *   — se presente, entra in modalità modifica: carica la draft collegata invece che via
+     *   session_token e salta lo screen "intro" (marketing per chi non ha ancora un account).
+     */
+    public function mount(?Character $character = null): void
+    {
+        if ($character) {
+            // Un personaggio creato prima di questo sistema (es. Sofia, via admin Filament) non
+            // ha nessuna draft collegata — aprire comunque il wizard mostrerebbe un questionario
+            // vuoto che, salvato, sovrascriverebbe con contenuto generico la sua bible reale.
+            // Meglio bloccare qui che rischiare di distruggere dati veri.
+            abort_if(! $character->draft, 404, 'Questo personaggio non è stato creato con il questionario e non può essere modificato da qui.');
+
+            $this->editingCharacter = $character;
+            $this->hydrateFromDraft($character->draft);
+            $this->step = 'why';
+
+            return;
+        }
+
+        // Ripresa esplicita di una bozza specifica (link "Continua" dal menu personaggi,
+        // ?bozza={id}) — necessaria da autenticati con più personaggi in lavorazione
+        // contemporaneamente: il solo session_token non basta più a capire QUALE bozza
+        // riprendere, e "l'ultima del tenant" sarebbe ambiguo se l'utente vuole invece iniziarne
+        // una nuova. Verifica di appartenenza al tenant corrente prima di caricarla.
+        $resumeId = request()->query('bozza');
+        if ($resumeId && auth()->check()) {
+            $draft = CharacterDraft::where('id', $resumeId)
+                ->where('tenant_id', auth()->user()->tenant_id)
+                ->whereNull('character_id')
+                ->where('status', '!=', 'convertito')
+                ->first();
+
+            if ($draft) {
+                $this->hydrateFromDraft($draft);
+
+                return;
+            }
+        }
+
         $token = session('character_draft_token');
         if (! $token) {
             $token = (string) Str::uuid();
@@ -79,10 +147,13 @@ class CharacterCreationWizard extends Component
             ->latest('created_at')
             ->first();
 
-        if (! $draft) {
-            return;
+        if ($draft) {
+            $this->hydrateFromDraft($draft);
         }
+    }
 
+    private function hydrateFromDraft(CharacterDraft $draft): void
+    {
         $this->draftId = $draft->id;
         $this->goal = $draft->goal;
         $this->goalSecondary = $draft->goal_secondary;
@@ -114,6 +185,14 @@ class CharacterCreationWizard extends Component
         $this->noseDetail = $draft->nose_detail;
         $this->mouthDetail = $draft->mouth_detail;
         $this->distinguishingDetail = $draft->distinguishing_detail;
+        $this->dietaryHabits = $draft->dietary_habits ?? [];
+        $this->hobbies = $draft->hobbies ?? [];
+        $this->lifeGoals = $draft->life_goals;
+        $this->fears = $draft->fears ?? [];
+        $this->backstory = $draft->backstory;
+        $this->keyRelationships = $draft->key_relationships ?? [];
+        $this->typicalPhrases = $draft->typical_phrases ?? [];
+        $this->hyperSpecificDetails = $draft->hyper_specific_details ?? [];
     }
 
     public function goBack(string $to): void
@@ -138,6 +217,7 @@ class CharacterCreationWizard extends Component
             'voice' => $this->applyVoice($payload),
             'humor' => $this->applyHumor($payload),
             'appearance' => $this->applyAppearance($payload),
+            'approfondimento' => $this->applyApprofondimento($payload),
             default => null,
         };
 
@@ -248,12 +328,29 @@ class CharacterCreationWizard extends Component
     }
 
     /**
+     * Tutto facoltativo (spec: "puoi farlo con calma dopo", non blocca l'attivazione del
+     * personaggio) — nessuna validazione richiesta.
+     */
+    private function applyApprofondimento(array $payload): void
+    {
+        $this->dietaryHabits = $payload['dietaryHabits'] ?? [];
+        $this->hobbies = $payload['hobbies'] ?? [];
+        $this->lifeGoals = $payload['lifeGoals'] ?? null;
+        $this->fears = $payload['fears'] ?? [];
+        $this->backstory = $payload['backstory'] ?? null;
+        $this->keyRelationships = $payload['keyRelationships'] ?? [];
+        $this->typicalPhrases = $payload['typicalPhrases'] ?? [];
+        $this->hyperSpecificDetails = $payload['hyperSpecificDetails'] ?? [];
+    }
+
+    /**
      * Unico CTA dello screen finale: niente bozze anonime "fluttuanti" senza proprietario
      * (decisione esplicita dell'utente, cambiata rispetto allo spec originale che permetteva un
      * "salva per dopo" senza account). Se non autenticato, si persiste comunque la bozza (così
      * non si perde nulla nel passaggio) ma si rimanda a login/registrazione spiegando che senza
      * account i dati non restano — la conversione vera in Character avviene solo lì (o subito
-     * sotto, se l'utente è già loggato).
+     * sotto, se l'utente è già loggato, incluso il caso "modifica" dove l'aggiornamento avviene
+     * in-place sullo stesso Character grazie a draft.character_id già valorizzato).
      */
     public function saveAndContinue()
     {
@@ -278,7 +375,7 @@ class CharacterCreationWizard extends Component
             return redirect()->route('register');
         }
 
-        app(\App\Services\ConvertCharacterDraftToCharacter::class)->convert(
+        app(ConvertCharacterDraftToCharacter::class)->convert(
             CharacterDraft::findOrFail($this->draftId),
             auth()->user()->resolveOrCreateTenant()->id
         );
@@ -288,53 +385,81 @@ class CharacterCreationWizard extends Component
 
     private function persistDraft(array $extra = []): void
     {
-        $draft = CharacterDraft::updateOrCreate(
-            ['session_token' => session('character_draft_token')],
-            array_merge([
-                'goal' => $this->goal,
-                'goal_secondary' => $this->goalSecondary,
-                'target_audience' => $this->targetAudience,
-                'niche' => $this->niche,
-                'name' => $this->name,
-                'role' => $this->role,
-                'one_liner' => $this->oneLiner,
-                'living_situation' => $this->livingSituation,
-                'pets' => $this->pets,
-                'environment' => $this->environment,
-                'traits' => $this->traits,
-                'core_values' => $this->coreValues,
-                'dislikes' => $this->dislikes,
-                'communication_formality' => $this->communicationFormality,
-                'communication_verbosity' => $this->communicationVerbosity,
-                'communication_directness' => $this->communicationDirectness,
-                'emoji_usage' => $this->emojiUsage,
-                'humor_level' => $this->humorLevel,
-                'joke_targets' => $this->jokeTargets,
-                'humor_safe_topics' => $this->humorSafeTopics,
-                'content_safe_limits' => self::DEFAULT_SAFE_TOPICS,
-                'age_range' => $this->ageRange,
-                'presentation' => $this->presentation,
-                'style_archetype' => $this->styleArchetype,
-                'hair_color' => $this->hairColor,
-                'hair_style' => $this->hairStyle,
-                'eye_color' => $this->eyeColor,
-                'body_type' => $this->bodyType,
-                'nose_detail' => $this->noseDetail,
-                'mouth_detail' => $this->mouthDetail,
-                'distinguishing_detail' => $this->distinguishingDetail,
-                'expires_at' => now()->addDays(30),
-            ], $extra)
-        );
+        $attributes = array_merge([
+            'goal' => $this->goal,
+            'goal_secondary' => $this->goalSecondary,
+            'target_audience' => $this->targetAudience,
+            'niche' => $this->niche,
+            'name' => $this->name,
+            'role' => $this->role,
+            'one_liner' => $this->oneLiner,
+            'living_situation' => $this->livingSituation,
+            'pets' => $this->pets,
+            'environment' => $this->environment,
+            'traits' => $this->traits,
+            'core_values' => $this->coreValues,
+            'dislikes' => $this->dislikes,
+            'communication_formality' => $this->communicationFormality,
+            'communication_verbosity' => $this->communicationVerbosity,
+            'communication_directness' => $this->communicationDirectness,
+            'emoji_usage' => $this->emojiUsage,
+            'humor_level' => $this->humorLevel,
+            'joke_targets' => $this->jokeTargets,
+            'humor_safe_topics' => $this->humorSafeTopics,
+            'content_safe_limits' => self::DEFAULT_SAFE_TOPICS,
+            'age_range' => $this->ageRange,
+            'presentation' => $this->presentation,
+            'style_archetype' => $this->styleArchetype,
+            'hair_color' => $this->hairColor,
+            'hair_style' => $this->hairStyle,
+            'eye_color' => $this->eyeColor,
+            'body_type' => $this->bodyType,
+            'nose_detail' => $this->noseDetail,
+            'mouth_detail' => $this->mouthDetail,
+            'distinguishing_detail' => $this->distinguishingDetail,
+            'dietary_habits' => $this->dietaryHabits,
+            'hobbies' => $this->hobbies,
+            'life_goals' => $this->lifeGoals,
+            'fears' => $this->fears,
+            'backstory' => $this->backstory,
+            'key_relationships' => $this->keyRelationships,
+            'typical_phrases' => $this->typicalPhrases,
+            'hyper_specific_details' => $this->hyperSpecificDetails,
+            'expires_at' => now()->addDays(30),
+        ], $extra);
+
+        // Da autenticato, la bozza appartiene sempre al tenant fin da subito (non solo alla
+        // conversione finale) — così compare nel menu personaggi anche prima di finire il
+        // questionario. resolveOrCreateTenant() gestisce anche account pre-esistenti senza
+        // tenant (bug reale trovato in produzione, vedi User::resolveOrCreateTenant()).
+        if (auth()->check()) {
+            $attributes['tenant_id'] = auth()->user()->resolveOrCreateTenant()->id;
+        }
+
+        if ($this->draftId) {
+            // Bozza già identificata (da mount(), che filtra esplicitamente status!=convertito,
+            // o da un nextStep precedente in questo stesso giro) — sempre un aggiornamento.
+            $draft = CharacterDraft::findOrFail($this->draftId);
+            $draft->update($attributes);
+        } else {
+            // Prima volta in questo giro: crea SEMPRE una riga nuova. Un updateOrCreate per
+            // session_token da solo riaggancerebbe la bozza già convertita di un personaggio
+            // precedente creato nella stessa sessione browser (bug reale: un secondo
+            // personaggio sovrascriveva il primo invece di crearne uno separato).
+            $attributes['session_token'] = session('character_draft_token');
+            $draft = CharacterDraft::create($attributes);
+        }
 
         $this->draftId = $draft->id;
     }
 
     public function render()
     {
-        $stepIndex = array_search($this->step, self::STEPS, true);
+        $steps = $this->steps();
+        $stepIndex = array_search($this->step, $steps, true);
 
         return view('livewire.character-creation-wizard', [
-            'steps' => self::STEPS,
+            'steps' => $steps,
             'stepIndex' => $stepIndex,
         ])->layout('layouts.wizard');
     }

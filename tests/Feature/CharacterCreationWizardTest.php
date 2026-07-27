@@ -153,16 +153,49 @@ class CharacterCreationWizardTest extends TestCase
         $this->assertSame($expected, $topics);
     }
 
-    public function test_save_for_later_marks_draft_as_completed_without_registration(): void
+    public function test_save_and_continue_redirects_to_register_when_not_authenticated(): void
     {
         Livewire::test(CharacterCreationWizard::class)
             ->call('nextStep', 'why', 'identity', ['goal' => 'Educare', 'niche' => ['Fitness', 'Salute']])
-            ->call('saveForLater')
-            ->assertHasNoErrors();
+            ->call('nextStep', 'identity', 'personality', ['name' => 'Prova', 'oneLiner' => 'Un personaggio di prova'])
+            ->call('saveAndContinue')
+            ->assertRedirect(route('register'));
+
+        // La bozza resta persistita (non si perde nulla nel passaggio) ma non è ancora
+        // convertita: niente personaggi "fluttuanti" associati a nessuno finché non c'è un account.
+        $draft = CharacterDraft::first();
+        $this->assertSame('Educare', $draft->goal);
+        $this->assertSame('in_corso', $draft->status);
+        $this->assertNull($draft->tenant_id);
+        $this->assertTrue(session('save_requires_auth'));
+    }
+
+    public function test_save_and_continue_requires_identity_fields_even_if_client_skips_the_step(): void
+    {
+        Livewire::test(CharacterCreationWizard::class)
+            ->call('nextStep', 'why', 'identity', ['goal' => 'Educare', 'niche' => ['Fitness', 'Salute']])
+            ->call('saveAndContinue') // salta lo step "identity": name/oneLiner restano null
+            ->assertHasErrors(['name', 'oneLiner']);
+
+        $this->assertNull(CharacterDraft::first()->tenant_id ?? null);
+    }
+
+    public function test_save_and_continue_converts_immediately_when_already_authenticated(): void
+    {
+        $tenant = \App\Models\Tenant::create(['name' => 'Già Loggato', 'email' => 'gia-loggato@example.com', 'status' => 'trial']);
+        $user = \App\Models\User::factory()->create(['tenant_id' => $tenant->id, 'role' => 'owner']);
+
+        Livewire::actingAs($user)
+            ->test(CharacterCreationWizard::class)
+            ->call('nextStep', 'why', 'identity', ['goal' => 'Educare', 'niche' => ['Fitness', 'Salute']])
+            ->call('nextStep', 'identity', 'personality', ['name' => 'Prova', 'oneLiner' => 'Un personaggio di prova'])
+            ->call('saveAndContinue')
+            ->assertRedirect(route('character.panel'));
 
         $draft = CharacterDraft::first();
-        $this->assertSame('completato', $draft->status);
-        $this->assertSame('Educare', $draft->goal);
+        $this->assertSame('convertito', $draft->status);
+        $this->assertSame($tenant->id, $draft->tenant_id);
+        $this->assertSame(1, $tenant->characters()->count());
     }
 
     public function test_resuming_with_same_session_hydrates_existing_draft(): void

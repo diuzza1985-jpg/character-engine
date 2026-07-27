@@ -119,7 +119,13 @@
   .helper-suggest{ margin-top:13px; font-size:13px; color:#B39BFF; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:6px; }
 
   .actions{ display:flex; justify-content:space-between; align-items:center; margin-top:36px; }
-  button{ font-family:var(--font-display); border:none; cursor:pointer; font-weight:700; font-size:14.5px; border-radius:999px; padding:14px 28px; transition:.15s ease; }
+  {{-- Selettore esteso oltre "button": .hype-actions usa un <a> per "Sì, continua" (serve
+       navigare a /registrati, non un'azione Livewire) — senza queste regole anche sui link
+       quel pulsante perdeva padding/border-radius/font e sembrava rotto. --}}
+  button, a.btn-primary, a.btn-ghost, a.btn-outline, a.btn-warn{
+    font-family:var(--font-display); border:none; cursor:pointer; font-weight:700; font-size:14.5px;
+    border-radius:999px; padding:14px 28px; transition:.15s ease; display:inline-block; text-decoration:none;
+  }
   .btn-primary{ background:linear-gradient(135deg,var(--p1),var(--p3)); color:#fff; box-shadow:0 12px 26px -12px rgba(139,92,246,.65); }
   .btn-primary:disabled{ background:#2A2E45; color:#6E7396; box-shadow:none; cursor:not-allowed; }
   .btn-primary:not(:disabled):hover{ filter:brightness(1.1); transform:translateY(-1px); }

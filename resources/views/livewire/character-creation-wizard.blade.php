@@ -383,17 +383,12 @@
                 </div>
 
                 <div class="hype-box">
-                    <h3>Vuoi salvare e generare adesso il tuo personaggio?</h3>
-                    <p>Bastano un attimo per completare la registrazione, poi potrai arricchirlo e attivarlo quando vuoi.</p>
+                    <h3>Salva il tuo personaggio</h3>
+                    <p>Serve un account per non perderlo: se non hai ancora effettuato l'accesso ti chiederemo di accedere o registrarti al volo, poi potrai arricchirlo e attivarlo quando vuoi.</p>
                     <div class="hype-actions">
-                        <a href="{{ route('register') }}" class="btn-primary" style="text-decoration:none; display:inline-block;">Sì, continua →</a>
-                        <button class="btn-outline" wire:click="saveForLater">Salva e continua più tardi</button>
+                        <button class="btn-primary" wire:click="saveAndContinue">Salva e continua →</button>
                     </div>
                 </div>
-
-                @if(session('draft_saved'))
-                    <p class="note">Bozza salvata. Potrai riprendere e generarlo quando vuoi, senza nessun costo nel frattempo.</p>
-                @endif
             </div>
         </div>
         @endif

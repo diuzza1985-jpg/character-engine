@@ -29,8 +29,8 @@ use App\Http\Controllers\Auth\LoginController;
 Route::get('/accedi', [LoginController::class, 'create'])->name('login');
 Route::post('/accedi', [LoginController::class, 'store'])->name('login.store');
 
-use App\Http\Controllers\CharacterPanelController;
+use App\Livewire\CharacterPanel;
 
-Route::get('/il-mio-personaggio', [CharacterPanelController::class, 'show'])
+Route::get('/il-mio-personaggio', CharacterPanel::class)
     ->middleware('auth')
     ->name('character.panel');

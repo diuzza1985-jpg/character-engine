@@ -8,6 +8,13 @@
     <h1>Crea il tuo account</h1>
     <p class="subtitle">Il tuo personaggio è già definito — questi dati servono solo a conservarlo e a farti tornare quando vuoi.</p>
 
+    @if(session('save_requires_auth'))
+        <div class="serious-note">
+            <span>🔒</span>
+            <div>Per salvare il personaggio serve un account: senza registrazione (o accesso, se ne hai già uno) i dati non vengono conservati.</div>
+        </div>
+    @endif
+
     <form method="POST" action="{{ route('register.store') }}">
         @csrf
 
@@ -31,5 +38,7 @@
             <button type="submit" class="btn-primary">Crea account →</button>
         </div>
     </form>
+
+    <p class="note">Hai già un account? <a href="{{ route('login') }}" style="color:#B39BFF;">Accedi</a></p>
 </div>
 @endsection

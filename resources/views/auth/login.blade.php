@@ -8,6 +8,13 @@
     <h1>Accedi</h1>
     <p class="subtitle">Torna al tuo personaggio quando vuoi.</p>
 
+    @if(session('save_requires_auth'))
+        <div class="serious-note">
+            <span>🔒</span>
+            <div>Per salvare il personaggio serve un account: accedi con quello che hai già, oppure registrane uno nuovo.</div>
+        </div>
+    @endif
+
     <form method="POST" action="{{ route('login.store') }}">
         @csrf
 
@@ -23,5 +30,7 @@
             <button type="submit" class="btn-primary">Accedi →</button>
         </div>
     </form>
+
+    <p class="note">Non hai ancora un account? <a href="{{ route('register') }}" style="color:#B39BFF;">Registrati</a></p>
 </div>
 @endsection

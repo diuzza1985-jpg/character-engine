@@ -8,6 +8,12 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 @include('layouts.partials.wizard-styles')
+{{-- Questa pagina non è un componente Livewire: l'auto-injection di Alpine.js (bundlato con
+     Livewire) scatta solo se la risposta contiene un componente Livewire vivo, il che qui non
+     succede mai — senza @livewireScripts esplicito, x-data/x-show/x-on non fanno nulla e ogni
+     pannello resta visibile insieme agli altri (bug reale trovato in produzione sul pannello
+     post-registrazione). --}}
+@livewireScripts
 </head>
 <body>
 

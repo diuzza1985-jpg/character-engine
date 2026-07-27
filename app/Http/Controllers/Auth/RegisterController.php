@@ -60,6 +60,7 @@ class RegisterController extends Controller
             // DB locali), quindi non serve un vero worker di coda per avere il personaggio
             // pronto subito al primo caricamento del pannello post-registrazione.
             ConvertCharacterDraftJob::dispatchSync($draft->id, $tenant->id);
+            session()->forget('save_requires_auth');
         }
 
         return redirect()->route('character.panel');

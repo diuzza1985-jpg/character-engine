@@ -248,13 +248,42 @@ class CharacterCreationWizard extends Component
     }
 
     /**
-     * "Salva per dopo" (spec tecnica §5): nessuna registrazione richiesta, la bozza resta
-     * riprendibile con lo stesso session_token. Non è "Avanti" quindi non passa da nextStep().
+     * Unico CTA dello screen finale: niente bozze anonime "fluttuanti" senza proprietario
+     * (decisione esplicita dell'utente, cambiata rispetto allo spec originale che permetteva un
+     * "salva per dopo" senza account). Se non autenticato, si persiste comunque la bozza (così
+     * non si perde nulla nel passaggio) ma si rimanda a login/registrazione spiegando che senza
+     * account i dati non restano — la conversione vera in Character avviene solo lì (o subito
+     * sotto, se l'utente è già loggato).
      */
-    public function saveForLater(): void
+    public function saveAndContinue()
     {
-        $this->persistDraft(['status' => 'completato']);
-        session()->flash('draft_saved', true);
+        // Guardia server-side: saveAndContinue è un metodo Livewire pubblico, raggiungibile in
+        // teoria anche senza essere passati per lo step "identity" (il client non va mai fidato
+        // sul rispettare l'ordine degli step) — senza questo controllo ConvertCharacterDraftToCharacter
+        // andrebbe in errore fatale su un nome nullo invece di un errore di validazione gestito.
+        $this->validate([
+            'goal' => ['required', 'string'],
+            'niche' => ['required', 'array', 'min:2'],
+            'name' => ['required', 'string'],
+            'oneLiner' => ['required', 'string'],
+        ], [], ['goal' => 'obiettivo', 'niche' => 'nicchia', 'name' => 'nome', 'oneLiner' => '"in una frase, chi è"']);
+
+        $this->persistDraft();
+
+        if (! auth()->check()) {
+            // Non una flash: deve sopravvivere anche se l'utente passa da registrati ad accedi
+            // (o viceversa) prima di completare — viene rimossa solo a conversione avvenuta.
+            session(['save_requires_auth' => true]);
+
+            return redirect()->route('register');
+        }
+
+        app(\App\Services\ConvertCharacterDraftToCharacter::class)->convert(
+            CharacterDraft::findOrFail($this->draftId),
+            auth()->user()->resolveOrCreateTenant()->id
+        );
+
+        return redirect()->route('character.panel');
     }
 
     private function persistDraft(array $extra = []): void

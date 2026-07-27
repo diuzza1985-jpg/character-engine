@@ -6,7 +6,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 class Character extends Model
 {
     use HasFactory, SoftDeletes;
-    protected $fillable = ['tenant_id', 'name', 'slug', 'status'];
+    protected $fillable = ['tenant_id', 'name', 'one_liner', 'slug', 'status'];
     public function tenant()
     {
         return $this->belongsTo(Tenant::class);

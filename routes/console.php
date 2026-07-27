@@ -13,3 +13,4 @@ Schedule::command('schedule:materialize-weekly')->dailyAt('00:05');
 Schedule::command('schedule:process-due')->everyFifteenMinutes();
 // Orario da tarare in seguito (dopo che sappiamo quando girano generazione/pubblicazione).
 Schedule::command('character:live-tick')->daily();
+Schedule::command('character-drafts:prune-expired')->daily();

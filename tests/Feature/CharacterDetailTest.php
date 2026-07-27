@@ -127,15 +127,23 @@ class CharacterDetailTest extends TestCase
         $response->assertSee('Saldo disponibile: 50 crediti');
     }
 
-    public function test_shows_bible_sections_read_only_and_edit_link_when_draft_exists(): void
+    public function test_shows_structured_questionnaire_answers_not_the_raw_bible_prose(): void
     {
         [$tenant, $user, $character] = $this->makeTenantUserCharacter();
-        \App\Models\CharacterBibleSection::create(['character_id' => $character->id, 'section_key' => 'valori', 'content' => 'Contenuto di prova', 'version' => 1]);
-        \App\Models\CharacterDraft::create(['session_token' => 'x', 'tenant_id' => $tenant->id, 'character_id' => $character->id, 'name' => 'Sofia Test', 'status' => 'convertito']);
+        \App\Models\CharacterBibleSection::create(['character_id' => $character->id, 'section_key' => 'valori', 'content' => 'Testo prosa generato, non deve mai comparire qui', 'version' => 1]);
+        \App\Models\CharacterDraft::create([
+            'session_token' => 'x', 'tenant_id' => $tenant->id, 'character_id' => $character->id,
+            'name' => 'Sofia Test', 'status' => 'convertito',
+            'goal' => 'Intrattenere', 'niche' => ['Tecnologia', 'Cucina'], 'traits' => ['curioso', 'generoso'],
+        ]);
 
         $response = $this->actingAs($user)->get(route('character.show', $character));
 
-        $response->assertSee('Contenuto di prova');
+        // Le risposte STRUTTURATE del questionario, non la prosa generata per il motore.
+        $response->assertSee('Intrattenere');
+        $response->assertSee('Tecnologia, Cucina');
+        $response->assertSee('curioso, generoso');
+        $response->assertDontSee('Testo prosa generato, non deve mai comparire qui');
         $response->assertSee(route('character.edit', $character), false);
     }
 }

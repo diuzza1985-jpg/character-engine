@@ -33,6 +33,14 @@ use App\Http\Controllers\Auth\LoginController;
 Route::get('/accedi', [LoginController::class, 'create'])->name('login');
 Route::post('/accedi', [LoginController::class, 'store'])->name('login.store');
 
+use App\Http\Controllers\Auth\LogoutController;
+
+Route::post('/esci', [LogoutController::class, 'store'])->middleware('auth')->name('logout');
+
+Route::get('/crediti', function () {
+    return view('credits.index');
+})->middleware('auth')->name('credits.index');
+
 use App\Livewire\CharacterList;
 use App\Livewire\CharacterDetail;
 

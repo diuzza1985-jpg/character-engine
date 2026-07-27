@@ -3,15 +3,15 @@
 namespace App\Livewire;
 
 use App\Models\Character;
-use App\Models\CharacterBibleSection;
 use App\Models\CharacterKinship;
 use Livewire\Component;
 
 /**
  * Dettaglio personaggio (/personaggi/{character}), sostituisce il vecchio pannello: riepilogo
- * di SOLA LETTURA (l'unico modo di modificare i dati è riaprire il questionario, mai il prompt/
- * prosa diretti — decisione esplicita), parentele con altri personaggi dello stesso tenant,
- * attivazione/pausa (gated su Instagram collegato), gate crediti riusato dalla consegna precedente.
+ * di SOLA LETTURA delle risposte del questionario (mai il prompt/la prosa bible generata — quella
+ * resta un dettaglio implementativo, l'utente non deve vederla né tanto meno toccarla), parentele
+ * con altri personaggi dello stesso tenant, attivazione/pausa (gated su Instagram collegato), gate
+ * crediti riusato dalla consegna precedente.
  */
 class CharacterDetail extends Component
 {
@@ -76,10 +76,6 @@ class CharacterDetail extends Component
     {
         $tenant = auth()->user()->tenant;
 
-        $bibleSections = CharacterBibleSection::where('character_id', $this->character->id)
-            ->orderBy('section_key')
-            ->get();
-
         $otherCharacters = $tenant
             ? $tenant->characters()->where('id', '!=', $this->character->id)->get()
             : collect();
@@ -88,12 +84,12 @@ class CharacterDetail extends Component
         $kinshipsAsRelated = $this->character->kinshipsAsRelated()->with('character')->get();
 
         return view('livewire.character-detail', [
-            'bibleSections' => $bibleSections,
+            'draft' => $this->character->draft,
             'otherCharacters' => $otherCharacters,
             'kinships' => $kinships,
             'kinshipsAsRelated' => $kinshipsAsRelated,
             'creditBalance' => $tenant?->creditBalance() ?? 0,
             'relationshipTypes' => CharacterKinship::RELATIONSHIP_TYPES,
-        ])->extends('layouts.public');
+        ])->extends('layouts.dashboard');
     }
 }

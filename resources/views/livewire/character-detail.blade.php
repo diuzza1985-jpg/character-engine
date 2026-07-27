@@ -33,13 +33,74 @@
             <button class="btn-primary" wire:click="toggleActive">{{ $character->status === 'active' ? 'Metti in pausa' : 'Attiva' }}</button>
         </div>
 
-        <div class="field-label" style="margin-top:28px;">Sezioni</div>
-        @forelse($bibleSections as $section)
-            <div class="field-label" style="margin-top:18px; font-size:13px; color:var(--ink-soft); text-transform:uppercase;">{{ ucfirst($section->section_key) }}</div>
-            <div class="generic-pane" style="white-space:pre-wrap; text-align:left; color:var(--ink);">{{ $section->content }}</div>
-        @empty
-            <div class="generic-pane">Nessuna sezione ancora — completa il questionario.</div>
-        @endforelse
+        @if($draft)
+            @php
+                $commLabel = fn (?int $v, string $low, string $high) => match(true) {
+                    $v === null => '—',
+                    $v <= 30 => $low,
+                    $v >= 71 => $high,
+                    default => 'Equilibrato',
+                };
+                $humorLabels = ['mai' => 'Mai — personaggio serio', 'raramente' => 'Raramente', 'leggero' => 'Qualche tocco leggero', 'forte' => 'Tratto forte'];
+            @endphp
+
+            <div class="summary-list" style="margin-top:22px;">
+                <div class="summary-row"><span class="k">Obiettivo</span><span class="v">{{ $draft->goal ?: '—' }}{{ $draft->goal_secondary ? ' / ' . $draft->goal_secondary : '' }}</span></div>
+                <div class="summary-row"><span class="k">Pubblico</span><span class="v">{{ $draft->target_audience ? implode(', ', $draft->target_audience) : '—' }}</span></div>
+                <div class="summary-row"><span class="k">Nicchia</span><span class="v">{{ $draft->niche ? implode(', ', $draft->niche) : '—' }}</span></div>
+                <div class="summary-row"><span class="k">Ruolo</span><span class="v">{{ $draft->role ?: '—' }}</span></div>
+                <div class="summary-row"><span class="k">Con chi vive</span><span class="v">{{ $draft->living_situation ?: '—' }}, {{ $draft->environment ?: '—' }}</span></div>
+                <div class="summary-row"><span class="k">Animali</span><span class="v">{{ $draft->pets ? implode(', ', $draft->pets) : '—' }}</span></div>
+                <div class="summary-row"><span class="k">Temperamento</span><span class="v">{{ $draft->traits ? implode(', ', $draft->traits) : '—' }}</span></div>
+                <div class="summary-row"><span class="k">Valori</span><span class="v">{{ $draft->core_values ? implode(', ', $draft->core_values) : '—' }}</span></div>
+                <div class="summary-row"><span class="k">Antipatie</span><span class="v">{{ $draft->dislikes ? implode(', ', $draft->dislikes) : '—' }}</span></div>
+                <div class="summary-row"><span class="k">Come comunica</span><span class="v">{{ $commLabel($draft->communication_formality, 'Formale', 'Informale') }}, {{ $commLabel($draft->communication_verbosity, 'Conciso', 'Espansivo') }}, {{ $commLabel($draft->communication_directness, 'Diretto', 'Diplomatico') }}</span></div>
+                <div class="summary-row"><span class="k">Emoji</span><span class="v">{{ ucfirst($draft->emoji_usage ?: '—') }}</span></div>
+                <div class="summary-row"><span class="k">Umorismo</span><span class="v">{{ $humorLabels[$draft->humor_level] ?? '—' }}</span></div>
+                @if($draft->humor_level && $draft->humor_level !== 'mai')
+                    <div class="summary-row"><span class="k">Bersagli comici</span><span class="v">{{ $draft->joke_targets ? implode(', ', $draft->joke_targets) : '—' }}</span></div>
+                @endif
+                <div class="summary-row"><span class="k">Età / presentazione</span><span class="v">{{ $draft->age_range ?: '—' }}, {{ $draft->presentation ?: '—' }}</span></div>
+                <div class="summary-row"><span class="k">Stile</span><span class="v">{{ $draft->style_archetype ?: '—' }}</span></div>
+                <div class="summary-row"><span class="k">Capelli / occhi</span><span class="v">{{ $draft->hair_color ?: '—' }} {{ $draft->hair_style }}, occhi {{ $draft->eye_color ?: '—' }}</span></div>
+                <div class="summary-row"><span class="k">Corporatura</span><span class="v">{{ $draft->body_type ?: '—' }}</span></div>
+                @if($draft->distinguishing_detail)
+                    <div class="summary-row"><span class="k">Dettaglio riconoscibile</span><span class="v">{{ $draft->distinguishing_detail }}</span></div>
+                @endif
+            </div>
+
+            @if($draft->backstory || $draft->life_goals || !empty($draft->fears) || !empty($draft->hobbies) || !empty($draft->dietary_habits) || !empty($draft->typical_phrases) || !empty($draft->hyper_specific_details) || !empty($draft->key_relationships))
+                <div class="field-label" style="margin-top:22px;">Approfondimento</div>
+                <div class="summary-list">
+                    @if($draft->backstory)
+                        <div class="summary-row"><span class="k">Storia personale</span><span class="v">{{ $draft->backstory }}</span></div>
+                    @endif
+                    @if($draft->life_goals)
+                        <div class="summary-row"><span class="k">Sogni e obiettivi</span><span class="v">{{ $draft->life_goals }}</span></div>
+                    @endif
+                    @if(!empty($draft->fears))
+                        <div class="summary-row"><span class="k">Paure</span><span class="v">{{ implode(', ', $draft->fears) }}</span></div>
+                    @endif
+                    @if(!empty($draft->hobbies))
+                        <div class="summary-row"><span class="k">Hobby</span><span class="v">{{ implode(', ', $draft->hobbies) }}</span></div>
+                    @endif
+                    @if(!empty($draft->dietary_habits))
+                        <div class="summary-row"><span class="k">Abitudini alimentari</span><span class="v">{{ implode(', ', $draft->dietary_habits) }}</span></div>
+                    @endif
+                    @if(!empty($draft->typical_phrases))
+                        <div class="summary-row"><span class="k">Frasi tipiche</span><span class="v">{{ implode(' · ', $draft->typical_phrases) }}</span></div>
+                    @endif
+                    @if(!empty($draft->hyper_specific_details))
+                        <div class="summary-row"><span class="k">Dettagli iper-specifici</span><span class="v">{{ implode(', ', $draft->hyper_specific_details) }}</span></div>
+                    @endif
+                    @if(!empty($draft->key_relationships))
+                        <div class="summary-row"><span class="k">Relazioni chiave</span><span class="v">{{ collect($draft->key_relationships)->map(fn($r) => ($r['nome'] ?? '') . ($r['relazione'] ?? '' ? ' (' . $r['relazione'] . ')' : ''))->implode(', ') }}</span></div>
+                    @endif
+                </div>
+            @endif
+        @else
+            <div class="generic-pane" style="margin-top:22px;">Nessun dato del questionario disponibile — questo personaggio è stato creato fuori dal questionario.</div>
+        @endif
     </div>
 
     <div x-show="tab === 'parentele'" style="display:none;">

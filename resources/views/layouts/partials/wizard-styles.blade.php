@@ -235,4 +235,17 @@
   .screen{ display:none; animation:fade .3s ease; }
   .screen.visible{ display:block; }
   @keyframes fade{ from{opacity:0; transform:translateY(10px);} to{opacity:1; transform:translateY(0);} }
+
+  /* Menu laterale dell'area autenticata (layouts.dashboard) — riusa .sidebar/.brand del
+     wizard, aggiunge solo lo stile dei link di navigazione, mai serviti prima. */
+  .nav-link{
+    display:flex; align-items:center; gap:10px; padding:11px 14px; border-radius:12px;
+    color:#C9CCE8; text-decoration:none; font-size:14px; font-weight:600; font-family:var(--font-display);
+    transition:background .15s ease, color .15s ease;
+  }
+  .nav-link:hover{ background:rgba(255,255,255,.06); color:#fff; }
+  .nav-link.active{ background:linear-gradient(135deg,var(--p1),var(--p3)); color:#fff; }
+  .nav-link.disabled{ opacity:.5; cursor:not-allowed; }
+  .sidebar-footer{ margin-top:auto; padding-top:20px; border-top:1px solid var(--border); }
+  .sidebar-email{ font-size:12.5px; color:var(--ink-faint); margin-bottom:10px; word-break:break-all; }
 </style>

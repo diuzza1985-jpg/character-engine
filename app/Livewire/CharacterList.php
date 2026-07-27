@@ -31,6 +31,6 @@ class CharacterList extends Component
         return view('livewire.character-list', [
             'drafts' => $drafts,
             'characters' => $characters,
-        ])->extends('layouts.public');
+        ])->extends('layouts.dashboard');
     }
 }

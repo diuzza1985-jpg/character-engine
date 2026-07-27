@@ -86,8 +86,13 @@ class CharacterCreationWizard extends Component
 
     private function steps(): array
     {
+        // "Approfondimento" solo in modalità modifica (pannello di un personaggio già salvato),
+        // mai in creazione — nemmeno per chi è già autenticato: è un arricchimento successivo,
+        // non parte del primo giro (coerente con lo spec originale, "sbloccabile dopo
+        // l'attivazione del personaggio", corretto qui dopo revisione: prima compariva anche
+        // in creazione se autenticati, non era quello che si voleva).
         $steps = ['intro', 'why', 'identity', 'personality', 'voice', 'humor', 'appearance'];
-        if (auth()->check()) {
+        if ($this->editingCharacter) {
             $steps[] = 'approfondimento';
         }
         $steps[] = 'summary';

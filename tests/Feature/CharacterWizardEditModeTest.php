@@ -28,29 +28,50 @@ class CharacterWizardEditModeTest extends TestCase
             ->assertSet('step', 'summary'); // salta approfondimento, va dritto a summary
     }
 
-    public function test_approfondimento_step_is_reachable_for_authenticated_users(): void
+    public function test_approfondimento_step_is_absent_even_for_authenticated_users_during_creation(): void
     {
+        // Corretto dopo revisione: Approfondimento è un arricchimento solo per la modifica di un
+        // personaggio già salvato, mai per la creazione — nemmeno se già loggati. Verifica il
+        // markup renderizzato (la destinazione reale del bottone "Avanti"), non solo che
+        // nextStep() accetti comunque una chiamata diretta a 'approfondimento'.
         $tenant = Tenant::create(['name' => 'Approf Test', 'email' => 'approf-test@example.com', 'status' => 'trial']);
         $user = User::factory()->create(['tenant_id' => $tenant->id, 'role' => 'owner']);
 
-        Livewire::actingAs($user)->test(CharacterCreationWizard::class)
-            ->call('nextStep', 'why', 'identity', ['goal' => 'Educare', 'niche' => ['Salute', 'Sport']])
-            ->call('nextStep', 'identity', 'personality', ['name' => 'Auth', 'oneLiner' => 'Test'])
-            ->call('nextStep', 'personality', 'voice', ['traits' => ['curioso', 'calmo', 'generoso', 'pragmatico'], 'coreValues' => ['Libertà', 'Creatività'], 'dislikes' => ['Ritardi', 'Rumore']])
-            ->call('nextStep', 'voice', 'humor', ['communicationFormality' => 50, 'communicationVerbosity' => 50, 'communicationDirectness' => 50, 'emojiUsage' => 'raramente'])
-            ->call('nextStep', 'humor', 'appearance', ['humorLevel' => 'mai', 'jokeTargets' => []])
-            ->call('nextStep', 'appearance', 'approfondimento', ['ageRange' => '26-35', 'presentation' => 'Femminile', 'styleArchetype' => 'Boho'])
+        $component = Livewire::actingAs($user)->test(CharacterCreationWizard::class)->set('step', 'appearance');
+
+        $component->assertDontSeeHtml("nextStep('appearance', 'approfondimento'");
+        $component->assertSeeHtml("nextStep('appearance', 'summary'");
+    }
+
+    public function test_approfondimento_step_is_reachable_only_in_edit_mode(): void
+    {
+        $tenant = Tenant::create(['name' => 'Approf Edit', 'email' => 'approf-edit@example.com', 'status' => 'trial']);
+        $user = User::factory()->create(['tenant_id' => $tenant->id, 'role' => 'owner']);
+        $character = Character::create(['tenant_id' => $tenant->id, 'name' => 'Da Approfondire', 'one_liner' => 'Test', 'slug' => 'da-approfondire-' . uniqid(), 'status' => 'draft']);
+        CharacterDraft::create(['session_token' => 'approf-edit-' . uniqid(), 'tenant_id' => $tenant->id, 'character_id' => $character->id, 'name' => 'Da Approfondire', 'goal' => 'Educare', 'niche' => ['Salute'], 'status' => 'convertito']);
+
+        $component = Livewire::actingAs($user)->test(CharacterCreationWizard::class, ['character' => $character])
+            ->set('step', 'appearance');
+
+        $component->assertSeeHtml("nextStep('appearance', 'approfondimento'");
+
+        $component->call('nextStep', 'appearance', 'approfondimento', ['ageRange' => '26-35', 'presentation' => 'Femminile', 'styleArchetype' => 'Boho'])
             ->assertSet('step', 'approfondimento');
     }
 
-    public function test_approfondimento_data_is_persisted_and_feeds_biografia_section(): void
+    public function test_approfondimento_data_is_persisted_and_feeds_biografia_section_when_editing(): void
     {
         $tenant = Tenant::create(['name' => 'Approf Persist', 'email' => 'approf-persist@example.com', 'status' => 'trial']);
         $user = User::factory()->create(['tenant_id' => $tenant->id, 'role' => 'owner']);
+        $character = Character::create(['tenant_id' => $tenant->id, 'name' => 'Bio Test', 'one_liner' => 'Test', 'slug' => 'bio-test-' . uniqid(), 'status' => 'draft']);
+        CharacterDraft::create([
+            'session_token' => 'approf-persist-' . uniqid(), 'tenant_id' => $tenant->id, 'character_id' => $character->id,
+            'name' => 'Bio Test', 'goal' => 'Educare', 'niche' => ['Salute', 'Sport'], 'status' => 'convertito',
+        ]);
 
-        Livewire::actingAs($user)->test(CharacterCreationWizard::class)
+        Livewire::actingAs($user)->test(CharacterCreationWizard::class, ['character' => $character])
             ->call('nextStep', 'why', 'identity', ['goal' => 'Educare', 'niche' => ['Salute', 'Sport']])
-            ->call('nextStep', 'identity', 'personality', ['name' => 'Bio Test', 'oneLiner' => 'Test'])
+            ->call('nextStep', 'identity', 'personality', ['name' => 'Bio Test', 'oneLiner' => 'Frase aggiornata'])
             ->call('nextStep', 'personality', 'voice', ['traits' => ['curioso', 'calmo', 'generoso', 'pragmatico'], 'coreValues' => ['Libertà', 'Creatività'], 'dislikes' => ['Ritardi', 'Rumore']])
             ->call('nextStep', 'voice', 'humor', ['communicationFormality' => 50, 'communicationVerbosity' => 50, 'communicationDirectness' => 50, 'emojiUsage' => 'raramente'])
             ->call('nextStep', 'humor', 'appearance', ['humorLevel' => 'mai', 'jokeTargets' => []])
@@ -62,8 +83,8 @@ class CharacterWizardEditModeTest extends TestCase
             ->call('saveAndContinue')
             ->assertRedirect(route('character.panel'));
 
-        $character = $tenant->characters()->first();
-        $this->assertNotNull($character);
+        $character->refresh();
+        $this->assertSame('Frase aggiornata', $character->one_liner);
         $bio = CharacterBibleSection::where('character_id', $character->id)->where('section_key', 'biografia')->first();
         $this->assertStringContainsString('Cresciuta in campagna', $bio->content);
         $this->assertSame(1, \App\Models\CharacterRelationship::where('character_id', $character->id)->where('name', 'Fernando')->count());

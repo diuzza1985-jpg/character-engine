@@ -19,6 +19,8 @@ class ReferenceImageSelector
             return CharacterAsset::where('character_id', $character->id)->first();
         }
 
-        return $assets->random();
+        $default = $assets->firstWhere('is_default', true);
+
+        return $default ?? $assets->random();
     }
 }

@@ -135,16 +135,17 @@ class EditorialCycleService
 
     private function mapFormatoToMediaType(?string $formato): string
     {
-        // "post", "diario", "oggetto" e "screenshot" sono tutti immagine singola per Instagram —
-        // la differenza narrativa tra loro vive in narrative_format, non in media_type
-        // ("screenshot" è solo un overlay diverso sulla stessa immagine, nessun trattamento di
-        // pubblicazione dedicato serve, a differenza di carousel/story). carousel/reel/story
-        // restano distinti perché richiedono davvero un trattamento diverso in pubblicazione.
+        // "post", "diario", "oggetto", "screenshot" e "conversazione" sono tutti immagine singola
+        // per Instagram — la differenza narrativa tra loro vive in narrative_format, non in
+        // media_type ("screenshot"/"conversazione" sono solo un rendering diverso, nessun
+        // trattamento di pubblicazione dedicato serve, a differenza di carousel/story).
+        // carousel/reel/story restano distinti perché richiedono davvero un trattamento diverso
+        // in pubblicazione.
         //
         // "reel" non è più un formato che il cervello editoriale può decidere (sez. 12.5,
         // EditorialBrainService::formatoEnum) perché non esiste una pipeline di generazione
         // video dietro — questo passthrough per "reel" resta morto ma innocuo: se mai riappare
         // qui è perché formatoEnum è stato toccato senza completare prima una vera pipeline video.
-        return in_array($formato, ['post', 'diario', 'oggetto', 'screenshot'], true) ? 'image' : ($formato ?? 'image');
+        return in_array($formato, ['post', 'diario', 'oggetto', 'screenshot', 'conversazione'], true) ? 'image' : ($formato ?? 'image');
     }
 }

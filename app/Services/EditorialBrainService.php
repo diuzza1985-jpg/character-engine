@@ -13,7 +13,7 @@ use RuntimeException;
  */
 class EditorialBrainService
 {
-    private const REQUIRED_FIELDS = ['decisione', 'motivazione', 'formato', 'idea', 'testo', 'testo_overlay', 'prompt_immagine', 'carousel_slides', 'messaggi_chat', 'storyline_da_aggiornare', 'used_news'];
+    private const REQUIRED_FIELDS = ['decisione', 'motivazione', 'formato', 'idea', 'testo', 'testo_overlay', 'prompt_immagine', 'carousel_slides', 'messaggi_chat', 'messaggi_conversazione', 'storyline_da_aggiornare', 'used_news'];
 
     private function buildResponseSchema(bool $forcePublish, bool $diarioDisponibile = true): array
     {
@@ -37,6 +37,21 @@ class EditorialBrainService
                 'prompt_immagine' => ['type' => ['string', 'null']],
                 'carousel_slides' => ['type' => ['array', 'null'], 'items' => ['type' => 'string']],
                 'messaggi_chat' => ['type' => ['array', 'null'], 'items' => ['type' => 'string']],
+                // Distinto da messaggi_chat (formato "screenshot": foto + bolle overlay, alternanza
+                // per parità di indice) — "conversazione" è un mockup puro senza foto, serve sapere
+                // davvero chi scrive per disegnare mittente/contatto in alto, non solo l'alternanza.
+                'messaggi_conversazione' => [
+                    'type' => ['array', 'null'],
+                    'items' => [
+                        'type' => 'object',
+                        'additionalProperties' => false,
+                        'required' => ['mittente', 'testo'],
+                        'properties' => [
+                            'mittente' => ['type' => 'string'],
+                            'testo' => ['type' => 'string'],
+                        ],
+                    ],
+                ],
                 'storyline_da_aggiornare' => [
                     'type' => ['object', 'null'],
                     'additionalProperties' => false,
@@ -70,7 +85,11 @@ class EditorialBrainService
         // "screenshot" riusa la stessa immagine generata per gli altri formati, solo con un
         // overlay diverso (bolle di chat anziché quote-card, sez. 3 opzione A dell'analisi
         // 21/07): nessuna nuova generazione Fal.ai, stesso principio già vero per "carousel".
-        $enum = ['post', 'carousel', 'story', 'oggetto', 'screenshot', null];
+        // "conversazione" (sez. 3 opzione A, punto 2 del documento nuovi formati) è invece un
+        // mockup puro di app di messaggistica, senza nessuna foto del personaggio: a differenza
+        // di "screenshot" non c'è NESSUNA generazione Fal.ai dietro, solo rendering grafico da
+        // testo strutturato (messaggi_conversazione) — vedi GenerateInstagramPostJob.
+        $enum = ['post', 'carousel', 'story', 'oggetto', 'screenshot', 'conversazione', null];
         if ($diarioDisponibile) {
             $enum[] = 'diario';
         }
@@ -166,6 +185,20 @@ class EditorialBrainService
         if ($data['decisione'] === 'pubblica' && $data['formato'] === 'screenshot' && count($data['messaggi_chat'] ?? []) < 2) {
             throw new RuntimeException('Formato screenshot richiede almeno 2 messaggi_chat, ricevuti: ' . count($data['messaggi_chat'] ?? []));
         }
+        // Stesso principio di screenshot/carousel: uno "scambio" di un solo messaggio non è una
+        // conversazione. In più, a differenza di ogni altro formato "immagine", qui non deve
+        // esserci nessun prompt_immagine — non c'è nessuna foto da generare (mockup puro,
+        // GenerateInstagramPostJob salta del tutto FalImageService per questo formato) — se il
+        // cervello editoriale ne scrivesse comunque uno, sarebbe un prompt sprecato/fuorviante,
+        // meglio fallire qui che ignorarlo silenziosamente a valle.
+        if ($data['decisione'] === 'pubblica' && $data['formato'] === 'conversazione') {
+            if (count($data['messaggi_conversazione'] ?? []) < 2) {
+                throw new RuntimeException('Formato conversazione richiede almeno 2 messaggi_conversazione, ricevuti: ' . count($data['messaggi_conversazione'] ?? []));
+            }
+            if ($data['prompt_immagine'] !== null) {
+                throw new RuntimeException('Formato conversazione non deve avere prompt_immagine: nessuna immagine viene generata per questo formato.');
+            }
+        }
     }
 
    private function buildPrompt(
@@ -242,6 +275,7 @@ Prima di scegliere una battuta o un bersaglio comico per oggi, controlla se hai 
     - se scegli il formato "carousel": carousel_slides contiene da 3 a 5 frasi brevi (massimo 8-10 parole ciascuna), in italiano, pensate per essere lette sovrapposte alla foto come in un carosello "quote card" — devono avere un filo narrativo comune legato all'idea di oggi, essere leggibili a colpo d'occhio, senza hashtag o emoji dentro il testo della frase; testo resta la caption normale sotto il post (come per qualunque altro formato), distinta dalle frasi sovrapposte — non ripetere lì il contenuto delle slide. Per qualunque formato diverso da "carousel", carousel_slides deve essere null
     - se scegli il formato "oggetto": prompt_immagine descrive SOLO un oggetto o un dettaglio della scena, esplicitamente SENZA persone nell'inquadratura — deve essere qualcosa di specificamente legato a {$character->name}, dedotto dalla bible e dal profilo visivo sopra (non un oggetto generico che andrebbe bene per qualsiasi personaggio: guarda cosa emerge davvero dalla sua documentazione, dalla sua vita recente, dal suo mondo — può essere qualunque cosa, dipende solo da chi è lui/lei); testo (la caption) resta breve, quasi assente, lascia parlare l'immagine invece di spiegarla
     - se scegli il formato "screenshot": prompt_immagine descrive comunque una foto normale di {$character->name} (la conversazione non viene generata dentro l'immagine, viene sovrapposta dopo, quindi non descriverla visivamente in prompt_immagine); messaggi_chat contiene da 2 a 5 messaggi brevi (poche parole ciascuno, senza hashtag o emoji), in ordine, che alternano chi scrive come in un vero scambio tra {$character->name} e un'altra persona — quella persona resta solo narrativa, mai descritta in prompt_immagine (stessa regola di sopra sulle persone secondarie); testo resta la caption normale sotto il post, distinta dai messaggi. Per qualunque formato diverso da "screenshot", messaggi_chat deve essere null
+    - se scegli il formato "conversazione": NON esiste nessuna foto per questo formato, è un mockup puro di un'app di messaggistica — prompt_immagine deve restare null (nessuna immagine viene generata). messaggi_conversazione contiene da 2 a 5 messaggi in ordine, ciascuno un oggetto {mittente, testo}: mittente è "{$character->name}" oppure il nome di un'altra persona reale per lui/lei (dedotto dalle relazioni/bible sopra, mai un nome generico inventato sul momento se esiste già una persona pertinente nella sua vita); testo è breve (poche parole, senza hashtag o emoji); deve leggersi come un vero scambio a due, non un monologo — quindi non tutti i messaggi dello stesso mittente di fila. testo (la caption sotto il post) resta breve e distinta dai messaggi. Per qualunque formato diverso da "conversazione", messaggi_conversazione deve essere null
     - se scegli il formato "diario": testo è un pensiero breve in prima persona, tono riflessivo e privato, frasi semplici, NESSUN hashtag e NESSUNA call-to-action — non è un contenuto promozionale, è più vicino a una pagina scritta per sé che qualcuno ha visto per caso; prompt_immagine descrive uno sfondo quieto coerente con lo stato interno di oggi, non serve un primo piano del personaggio
     - used_news è sempre false per ora: le notizie non sono ancora collegate a questo flusso
 
@@ -262,6 +296,7 @@ TXT;
             'story',
             'oggetto (un dettaglio della sua vita, specifico per questo personaggio e dedotto dalla sua documentazione — non il personaggio in scena, ma qualcosa che lo racconta indirettamente)',
             'screenshot (un finto scambio di messaggi sovrapposto alla foto, come uno screenshot di conversazione reale)',
+            'conversazione (mockup puro di un\'app di messaggistica, senza nessuna foto — solo bolle di chat)',
         ];
 
         if ($diarioDisponibile) {

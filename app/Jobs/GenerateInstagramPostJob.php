@@ -168,6 +168,7 @@ class GenerateInstagramPostJob implements ShouldQueue
             // pipeline video pronta), ricade nell'else sotto e produce una singola immagine
             // statica come un post normale — comportamento invariato, non un fix.
             $isOggetto = $result['decision']['formato'] === 'oggetto';
+            $isConversazione = $result['decision']['formato'] === 'conversazione';
 
             // Rinforzo il negative prompt sia per stagione (12.6) sia per "oggetto": più
             // affidabile di contare solo sull'istruzione positiva nel prompt_immagine (che il
@@ -181,19 +182,34 @@ class GenerateInstagramPostJob implements ShouldQueue
                 $negativePrompt .= ', person, human, face, body, portrait';
             }
 
-            // "oggetto" usa un modello generico senza reference (generateStandalone, sezione 2.2):
-            // generate() è legato a fal-ai/ideogram/character, pensato per PRESERVARE il personaggio
-            // — l'opposto di quello che serve qui. $reference resta null in questo ramo, quindi
-            // 'reference_asset_id' più sotto sarà null per i post "oggetto" (atteso, non un bug).
-            if ($isOggetto) {
+            // "conversazione" (documento nuovi formati, opzione A punto 2): mockup puro di
+            // un'app di messaggistica, nessuna foto del personaggio per scelta di design — a
+            // differenza di "oggetto"/"screenshot"/tutti gli altri formati, qui NON si passa mai
+            // da FalImageService: nessuna reference da scegliere, nessun costo di generazione
+            // immagine, solo rendering grafico da messaggi_conversazione (già validati da
+            // EditorialBrainService::validate(), almeno 2). $reference resta null qui sotto,
+            // stesso trattamento già scelto per "oggetto".
+            if ($isConversazione) {
                 $reference = null;
-                $imageResult = $fal->generateStandalone($result['decision']['prompt_immagine'], $negativePrompt);
+                $seed = null;
+                $imageBinary = $overlay->renderConversationMockup($character->name, $result['decision']['messaggi_conversazione'] ?? []);
             } else {
-                $reference = $referenceSelector->pick($character);
-                if (! $reference) {
-                    throw new RuntimeException("Nessun asset di riferimento trovato per {$character->name}.");
+                // "oggetto" usa un modello generico senza reference (generateStandalone, sezione 2.2):
+                // generate() è legato a fal-ai/ideogram/character, pensato per PRESERVARE il personaggio
+                // — l'opposto di quello che serve qui. $reference resta null in questo ramo, quindi
+                // 'reference_asset_id' più sotto sarà null per i post "oggetto" (atteso, non un bug).
+                if ($isOggetto) {
+                    $reference = null;
+                    $imageResult = $fal->generateStandalone($result['decision']['prompt_immagine'], $negativePrompt);
+                } else {
+                    $reference = $referenceSelector->pick($character);
+                    if (! $reference) {
+                        throw new RuntimeException("Nessun asset di riferimento trovato per {$character->name}.");
+                    }
+                    $imageResult = $fal->generate($result['decision']['prompt_immagine'], $negativePrompt, $reference);
                 }
-                $imageResult = $fal->generate($result['decision']['prompt_immagine'], $negativePrompt, $reference);
+                $seed = $imageResult['seed'];
+                $imageBinary = $imageResult['binary'];
             }
 
             // Formato "story": fino a qui l'immagine generata e' la stessa foto 4:5 di un post
@@ -202,8 +218,6 @@ class GenerateInstagramPostJob implements ShouldQueue
             // caption della decisione del cervello editoriale ("testo") invece di un commento a
             // una notizia. Se "testo" e' vuoto, StoryComposerService produce comunque un canvas
             // verticale valido, solo senza testo sovrapposto.
-            $imageBinary = $imageResult['binary'];
-
             if ($result['decision']['formato'] === 'story') {
                 $imageBinary = $storyComposer->compose($imageBinary, $result['decision']['testo'] ?? '');
             } elseif ($result['decision']['formato'] === 'post' && trim($result['decision']['testo_overlay'] ?? '') !== '') {
@@ -241,8 +255,8 @@ class GenerateInstagramPostJob implements ShouldQueue
             $result['generation']->update(['output' => array_merge($result['generation']->output, [
                 'image_path' => $imagePath,
                 'media_paths' => $mediaPaths,
-                'seed' => $imageResult['seed'],
-                'reference_asset_id' => $reference?->id, // null per "oggetto": nessuna reference selezionata in quel ramo
+                'seed' => $seed, // null per "conversazione": nessuna generazione Fal.ai in quel ramo
+                'reference_asset_id' => $reference?->id, // null per "oggetto"/"conversazione": nessuna reference selezionata in quei rami
                 'timeline_entry_id' => $timelineEntry->id,
             ])]);
         } catch (Throwable $e) {

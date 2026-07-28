@@ -24,7 +24,7 @@ class CharacterWizardEditModeTest extends TestCase
             ->call('nextStep', 'personality', 'voice', ['traits' => ['curioso', 'calmo', 'generoso', 'pragmatico'], 'coreValues' => ['Libertà', 'Creatività'], 'dislikes' => ['Ritardi', 'Rumore']])
             ->call('nextStep', 'voice', 'humor', ['communicationFormality' => 50, 'communicationVerbosity' => 50, 'communicationDirectness' => 50, 'emojiUsage' => 'raramente'])
             ->call('nextStep', 'humor', 'appearance', ['humorLevel' => 'mai', 'jokeTargets' => []])
-            ->call('nextStep', 'appearance', 'summary', ['ageRange' => '26-35', 'presentation' => 'Femminile', 'styleArchetype' => 'Boho'])
+            ->call('nextStep', 'appearance', 'summary', ['ageRange' => '26-35', 'presentation' => 'Femminile', 'styleArchetype' => 'Boho', 'hairLength' => 'Medi'])
             ->assertSet('step', 'summary'); // salta approfondimento, va dritto a summary
     }
 
@@ -55,7 +55,7 @@ class CharacterWizardEditModeTest extends TestCase
 
         $component->assertSeeHtml("nextStep('appearance', 'approfondimento'");
 
-        $component->call('nextStep', 'appearance', 'approfondimento', ['ageRange' => '26-35', 'presentation' => 'Femminile', 'styleArchetype' => 'Boho'])
+        $component->call('nextStep', 'appearance', 'approfondimento', ['ageRange' => '26-35', 'presentation' => 'Femminile', 'styleArchetype' => 'Boho', 'hairLength' => 'Medi'])
             ->assertSet('step', 'approfondimento');
     }
 
@@ -75,7 +75,7 @@ class CharacterWizardEditModeTest extends TestCase
             ->call('nextStep', 'personality', 'voice', ['traits' => ['curioso', 'calmo', 'generoso', 'pragmatico'], 'coreValues' => ['Libertà', 'Creatività'], 'dislikes' => ['Ritardi', 'Rumore']])
             ->call('nextStep', 'voice', 'humor', ['communicationFormality' => 50, 'communicationVerbosity' => 50, 'communicationDirectness' => 50, 'emojiUsage' => 'raramente'])
             ->call('nextStep', 'humor', 'appearance', ['humorLevel' => 'mai', 'jokeTargets' => []])
-            ->call('nextStep', 'appearance', 'approfondimento', ['ageRange' => '26-35', 'presentation' => 'Femminile', 'styleArchetype' => 'Boho'])
+            ->call('nextStep', 'appearance', 'approfondimento', ['ageRange' => '26-35', 'presentation' => 'Femminile', 'styleArchetype' => 'Boho', 'hairLength' => 'Medi'])
             ->call('nextStep', 'approfondimento', 'summary', [
                 'backstory' => 'Cresciuta in campagna.',
                 'keyRelationships' => [['nome' => 'Fernando', 'relazione' => 'marito', 'tratto' => 'sempre indaffarato']],

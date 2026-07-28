@@ -17,7 +17,7 @@ class CharacterDraft extends Model
         'traits', 'core_values', 'dislikes',
         'communication_formality', 'communication_verbosity', 'communication_directness', 'emoji_usage',
         'humor_level', 'joke_targets', 'humor_safe_topics', 'content_safe_limits',
-        'age_range', 'presentation', 'style_archetype', 'hair_color', 'hair_style',
+        'age_range', 'presentation', 'style_archetype', 'hair_color', 'hair_length', 'hair_style',
         'eye_color', 'body_type', 'nose_detail', 'mouth_detail', 'distinguishing_detail',
         'dietary_habits', 'hobbies', 'life_goals', 'fears', 'backstory',
         'key_relationships', 'typical_phrases', 'hyper_specific_details',

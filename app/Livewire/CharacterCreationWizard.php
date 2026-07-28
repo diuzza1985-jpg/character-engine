@@ -66,6 +66,7 @@ class CharacterCreationWizard extends Component
     public ?string $presentation = null;
     public ?string $styleArchetype = null;
     public ?string $hairColor = null;
+    public ?string $hairLength = null;
     public ?string $hairStyle = null;
     public ?string $eyeColor = null;
     public ?string $bodyType = null;
@@ -184,6 +185,7 @@ class CharacterCreationWizard extends Component
         $this->presentation = $draft->presentation;
         $this->styleArchetype = $draft->style_archetype;
         $this->hairColor = $draft->hair_color;
+        $this->hairLength = $draft->hair_length;
         $this->hairStyle = $draft->hair_style;
         $this->eyeColor = $draft->eye_color;
         $this->bodyType = $draft->body_type;
@@ -318,6 +320,7 @@ class CharacterCreationWizard extends Component
         $this->presentation = $payload['presentation'] ?? null;
         $this->styleArchetype = $payload['styleArchetype'] ?? null;
         $this->hairColor = $payload['hairColor'] ?? null;
+        $this->hairLength = $payload['hairLength'] ?? null;
         $this->hairStyle = $payload['hairStyle'] ?? null;
         $this->eyeColor = $payload['eyeColor'] ?? null;
         $this->bodyType = $payload['bodyType'] ?? null;
@@ -325,11 +328,16 @@ class CharacterCreationWizard extends Component
         $this->mouthDetail = $payload['mouthDetail'] ?? null;
         $this->distinguishingDetail = $payload['distinguishingDetail'] ?? null;
 
+        // hairLength è obbligatorio (a differenza di hairStyle, ora solo texture/acconciatura
+        // facoltativa): la lunghezza dei capelli deve sempre finire nel profilo visivo, mai
+        // lasciata implicita in una scelta di texture come "Ricci" (bug reale trovato indagando
+        // l'incoerenza capelli di Sofia — vedi ConvertCharacterDraftToCharacter::hairDescription()).
         $this->validate([
             'ageRange' => ['required', 'string'],
             'presentation' => ['required', 'string'],
             'styleArchetype' => ['required', 'string'],
-        ], [], ['ageRange' => 'fascia d\'età', 'presentation' => 'presentazione', 'styleArchetype' => 'stile']);
+            'hairLength' => ['required', 'string'],
+        ], [], ['ageRange' => 'fascia d\'età', 'presentation' => 'presentazione', 'styleArchetype' => 'stile', 'hairLength' => 'lunghezza capelli']);
     }
 
     /**
@@ -416,6 +424,7 @@ class CharacterCreationWizard extends Component
             'presentation' => $this->presentation,
             'style_archetype' => $this->styleArchetype,
             'hair_color' => $this->hairColor,
+            'hair_length' => $this->hairLength,
             'hair_style' => $this->hairStyle,
             'eye_color' => $this->eyeColor,
             'body_type' => $this->bodyType,

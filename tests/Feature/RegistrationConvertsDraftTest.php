@@ -25,7 +25,7 @@ class RegistrationConvertsDraftTest extends TestCase
             ->call('nextStep', 'personality', 'voice', ['traits' => ['curioso', 'calmo', 'generoso', 'pragmatico'], 'coreValues' => ['Libertà', 'Creatività'], 'dislikes' => ['Ritardi', 'Rumore']])
             ->call('nextStep', 'voice', 'humor', ['communicationFormality' => 20, 'communicationVerbosity' => 80, 'communicationDirectness' => 90, 'emojiUsage' => 'spesso'])
             ->call('nextStep', 'humor', 'appearance', ['humorLevel' => 'forte', 'jokeTargets' => ['Lavoro', 'Tecnologia', 'Traffico', 'Cibo', 'Burocrazia']])
-            ->call('nextStep', 'appearance', 'summary', ['ageRange' => '26-35', 'presentation' => 'Femminile', 'styleArchetype' => 'Boho', 'hairColor' => 'Rosso', 'distinguishingDetail' => 'Un tatuaggio sul polso']);
+            ->call('nextStep', 'appearance', 'summary', ['ageRange' => '26-35', 'presentation' => 'Femminile', 'styleArchetype' => 'Boho', 'hairColor' => 'Rosso', 'hairLength' => 'Lunghi', 'distinguishingDetail' => 'Un tatuaggio sul polso']);
     }
 
     public function test_registration_converts_the_session_draft_into_a_full_character(): void

@@ -295,10 +295,10 @@
         @if($step === 'appearance')
         <div class="screen visible" x-data="{
             ageRange: @js($ageRange), presentation: @js($presentation), styleArchetype: @js($styleArchetype),
-            hairColor: @js($hairColor), hairStyle: @js($hairStyle), eyeColor: @js($eyeColor), bodyType: @js($bodyType),
+            hairColor: @js($hairColor), hairLength: @js($hairLength), hairStyle: @js($hairStyle), eyeColor: @js($eyeColor), bodyType: @js($bodyType),
             noseDetail: @js($noseDetail), mouthDetail: @js($mouthDetail), distinguishingDetail: @js($distinguishingDetail),
             showAdvanced: false,
-            get canProceed() { return this.ageRange && this.presentation && this.styleArchetype },
+            get canProceed() { return this.ageRange && this.presentation && this.styleArchetype && this.hairLength },
         }">
             <div class="card">
                 <p class="eyebrow">Step 6 di {{ count($steps) - 2 }}</p>
@@ -329,8 +329,11 @@
                     ['value'=>'Colorato/fantasia','label'=>'Colorato/fantasia','color'=>'linear-gradient(135deg,#B39BFF,#6C9BFF)'],
                 ]" />
 
-                <x-wizard.field-label>Stile capelli</x-wizard.field-label>
-                <x-wizard.chip-row model="hairStyle" :multi="false" :items="[['value'=>'Corti','label'=>'Corti'],['value'=>'Medi','label'=>'Medi'],['value'=>'Lunghi','label'=>'Lunghi'],['value'=>'Ricci','label'=>'Ricci'],['value'=>'Raccolti','label'=>'Raccolti'],['value'=>'Rasati/calvo','label'=>'Rasati/calvo']]" />
+                <x-wizard.field-label>Lunghezza capelli</x-wizard.field-label>
+                <x-wizard.chip-row model="hairLength" :multi="false" :items="[['value'=>'Corti','label'=>'Corti'],['value'=>'Medi','label'=>'Medi'],['value'=>'Lunghi','label'=>'Lunghi']]" />
+
+                <x-wizard.field-label counter-expr="'facoltativo'">Acconciatura</x-wizard.field-label>
+                <x-wizard.chip-row model="hairStyle" :multi="false" :items="[['value'=>'Ricci','label'=>'Ricci'],['value'=>'Mossi','label'=>'Mossi'],['value'=>'Lisci','label'=>'Lisci'],['value'=>'Raccolti','label'=>'Raccolti'],['value'=>'Rasati/calvo','label'=>'Rasati/calvo']]" />
 
                 <x-wizard.field-label>Colore occhi</x-wizard.field-label>
                 <x-wizard.swatch-row model="eyeColor" :items="[
@@ -357,7 +360,7 @@
 
                 <div class="actions">
                     <button class="btn-ghost" wire:click="$set('step', 'humor')">← Indietro</button>
-                    <button class="btn-primary" :disabled="!canProceed" x-on:click="$wire.nextStep('appearance', @js(in_array('approfondimento', $steps, true) ? 'approfondimento' : 'summary'), { ageRange, presentation, styleArchetype, hairColor, hairStyle, eyeColor, bodyType, noseDetail, mouthDetail, distinguishingDetail })">Avanti →</button>
+                    <button class="btn-primary" :disabled="!canProceed" x-on:click="$wire.nextStep('appearance', @js(in_array('approfondimento', $steps, true) ? 'approfondimento' : 'summary'), { ageRange, presentation, styleArchetype, hairColor, hairLength, hairStyle, eyeColor, bodyType, noseDetail, mouthDetail, distinguishingDetail })">Avanti →</button>
                 </div>
             </div>
         </div>

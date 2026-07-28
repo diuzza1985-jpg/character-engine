@@ -34,7 +34,7 @@ class FullMultiCharacterFlowTest extends TestCase
             ->call('nextStep', 'personality', 'voice', ['traits' => ['curioso', 'calmo', 'generoso', 'pragmatico'], 'coreValues' => ['Libertà', 'Creatività'], 'dislikes' => ['Ritardi', 'Rumore']])
             ->call('nextStep', 'voice', 'humor', ['communicationFormality' => 40, 'communicationVerbosity' => 60, 'communicationDirectness' => 50, 'emojiUsage' => 'raramente'])
             ->call('nextStep', 'humor', 'appearance', ['humorLevel' => 'leggero', 'jokeTargets' => ['Lavoro', 'Tecnologia', 'Traffico', 'Cibo', 'Burocrazia']])
-            ->call('nextStep', 'appearance', 'summary', ['ageRange' => '26-35', 'presentation' => 'Femminile', 'styleArchetype' => 'Casual sportivo'])
+            ->call('nextStep', 'appearance', 'summary', ['ageRange' => '26-35', 'presentation' => 'Femminile', 'styleArchetype' => 'Casual sportivo', 'hairLength' => 'Lunghi'])
             ->call('saveAndContinue');
 
         $wizard->assertRedirect(route('register'));
@@ -81,7 +81,7 @@ class FullMultiCharacterFlowTest extends TestCase
             ->call('nextStep', 'personality', 'voice', ['traits' => ['spontaneo', 'ottimista', 'generoso', 'curioso'], 'coreValues' => ['Famiglia', 'Avventura'], 'dislikes' => ['Disordine', 'Noia']])
             ->call('nextStep', 'voice', 'humor', ['communicationFormality' => 30, 'communicationVerbosity' => 70, 'communicationDirectness' => 60, 'emojiUsage' => 'spesso'])
             ->call('nextStep', 'humor', 'appearance', ['humorLevel' => 'forte', 'jokeTargets' => ['Famiglia', 'Traffico', 'Cibo', 'Burocrazia', 'Diete fallite']])
-            ->call('nextStep', 'appearance', 'summary', ['ageRange' => '36-50', 'presentation' => 'Maschile', 'styleArchetype' => 'Streetwear'])
+            ->call('nextStep', 'appearance', 'summary', ['ageRange' => '36-50', 'presentation' => 'Maschile', 'styleArchetype' => 'Streetwear', 'hairLength' => 'Corti'])
             ->call('saveAndContinue')
             ->assertRedirect(route('character.panel'));
 

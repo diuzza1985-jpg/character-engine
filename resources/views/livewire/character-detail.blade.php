@@ -62,7 +62,7 @@
                 @endif
                 <div class="summary-row"><span class="k">Età / presentazione</span><span class="v">{{ $draft->age_range ?: '—' }}, {{ $draft->presentation ?: '—' }}</span></div>
                 <div class="summary-row"><span class="k">Stile</span><span class="v">{{ $draft->style_archetype ?: '—' }}</span></div>
-                <div class="summary-row"><span class="k">Capelli / occhi</span><span class="v">{{ $draft->hair_color ?: '—' }} {{ $draft->hair_style }}, occhi {{ $draft->eye_color ?: '—' }}</span></div>
+                <div class="summary-row"><span class="k">Capelli / occhi</span><span class="v">{{ $draft->hair_color ?: '—' }} {{ $draft->hair_length }} {{ $draft->hair_style }}, occhi {{ $draft->eye_color ?: '—' }}</span></div>
                 <div class="summary-row"><span class="k">Corporatura</span><span class="v">{{ $draft->body_type ?: '—' }}</span></div>
                 @if($draft->distinguishing_detail)
                     <div class="summary-row"><span class="k">Dettaglio riconoscibile</span><span class="v">{{ $draft->distinguishing_detail }}</span></div>

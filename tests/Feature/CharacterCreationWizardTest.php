@@ -60,7 +60,8 @@ class CharacterCreationWizardTest extends TestCase
             'presentation' => 'Femminile',
             'styleArchetype' => 'Casual sportivo',
             'hairColor' => 'Castano',
-            'hairStyle' => 'Medi',
+            'hairLength' => 'Medi',
+            'hairStyle' => 'Ricci',
             'eyeColor' => 'Verdi',
             'bodyType' => 'Media',
             'noseDetail' => null,
@@ -79,7 +80,26 @@ class CharacterCreationWizardTest extends TestCase
         $this->assertSame('leggero', $draft->humor_level);
         $this->assertSame(['Lavoro', 'Tecnologia', 'Traffico', 'Cibo', 'Burocrazia'], $draft->joke_targets);
         $this->assertSame('Castano', $draft->hair_color);
+        $this->assertSame('Medi', $draft->hair_length);
+        $this->assertSame('Ricci', $draft->hair_style);
         $this->assertSame('in_corso', $draft->status);
+    }
+
+    public function test_appearance_step_rejects_a_texture_without_a_hair_length(): void
+    {
+        // hairStyle ora è solo texture/acconciatura (facoltativa): scegliere una texture senza
+        // indicare hairLength deve restare bloccato, altrimenti si ripete il bug reale trovato
+        // su Sofia (profilo visivo muto sulla lunghezza dei capelli).
+        Livewire::test(CharacterCreationWizard::class)
+            ->call('$set', 'step', 'appearance')
+            ->call('nextStep', 'appearance', 'summary', [
+                'ageRange' => '26-35',
+                'presentation' => 'Femminile',
+                'styleArchetype' => 'Boho',
+                'hairStyle' => 'Ricci',
+            ])
+            ->assertHasErrors(['hairLength'])
+            ->assertSet('step', 'appearance');
     }
 
     public function test_why_step_rejects_fewer_than_two_niches(): void

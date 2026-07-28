@@ -128,9 +128,16 @@ class ConvertCharacterDraftToCharacter
         return $parts ? ucfirst(implode(', ', $parts)) . '.' : 'Non specificato.';
     }
 
+    /**
+     * hair_length è sempre incluso quando presente, indipendentemente da cosa l'utente ha scelto
+     * (o non scelto) su hair_style/texture — bug reale trovato indagando l'incoerenza capelli di
+     * Sofia: un profilo visivo che descrive solo colore e texture ("castano, ricci") lascia la
+     * lunghezza completamente libera al generatore di immagini, causando variazioni vistose tra
+     * una foto e l'altra.
+     */
     private function hairDescription(CharacterDraft $draft): string
     {
-        $parts = array_filter([$draft->hair_color, $draft->hair_style]);
+        $parts = array_filter([$draft->hair_color, $draft->hair_length, $draft->hair_style]);
 
         return $parts ? ucfirst(implode(', ', $parts)) . '.' : 'Non specificato.';
     }

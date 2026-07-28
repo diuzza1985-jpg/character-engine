@@ -6,7 +6,17 @@ class StoryComposerService
     private const CANVAS_WIDTH = 1080;
     private const CANVAS_HEIGHT = 1920;
     private const FONT_PATH = '/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf';
-    public function compose(string $baseImageBinary, string $text): string
+    /**
+     * $cropToFill=true (default, foto reali): riempie tutto il canvas, ritagliando l'eccesso —
+     * corretto per una fotografia, dove bande vuote ai lati sarebbero brutte. $cropToFill=false
+     * (mockup autosufficienti come "conversazione" condivisi in story): un ritaglio centrato
+     * taglierebbe contenuto reale vicino ai bordi (bug reale: fumetti di testo tagliati ai lati)
+     * — qui serve vedere TUTTO il contenuto, mai tagliarlo, quindi si scala per intero dentro il
+     * canvas e si riempie lo spazio in eccesso con lo stesso colore di sfondo della sorgente
+     * (letterbox "invisibile" invece di barre nere, dato che i mockup hanno già uno sfondo
+     * uniforme agli angoli).
+     */
+    public function compose(string $baseImageBinary, string $text, bool $cropToFill = true): string
     {
         $text = $this->stripEmoji($text);
         $source = imagecreatefromstring($baseImageBinary);
@@ -16,16 +26,34 @@ class StoryComposerService
         $srcW = imagesx($source);
         $srcH = imagesy($source);
         $canvas = imagecreatetruecolor(self::CANVAS_WIDTH, self::CANVAS_HEIGHT);
-        $scale = max(self::CANVAS_WIDTH / $srcW, self::CANVAS_HEIGHT / $srcH);
-        $scaledW = (int) ceil($srcW * $scale);
-        $scaledH = (int) ceil($srcH * $scale);
-        $resized = imagecreatetruecolor($scaledW, $scaledH);
-        imagecopyresampled($resized, $source, 0, 0, 0, 0, $scaledW, $scaledH, $srcW, $srcH);
-        $offsetX = (int) (($scaledW - self::CANVAS_WIDTH) / 2);
-        $offsetY = (int) (($scaledH - self::CANVAS_HEIGHT) / 2);
-        imagecopy($canvas, $resized, 0, 0, $offsetX, $offsetY, self::CANVAS_WIDTH, self::CANVAS_HEIGHT);
+
+        if ($cropToFill) {
+            $scale = max(self::CANVAS_WIDTH / $srcW, self::CANVAS_HEIGHT / $srcH);
+            $scaledW = (int) ceil($srcW * $scale);
+            $scaledH = (int) ceil($srcH * $scale);
+            $resized = imagecreatetruecolor($scaledW, $scaledH);
+            imagecopyresampled($resized, $source, 0, 0, 0, 0, $scaledW, $scaledH, $srcW, $srcH);
+            $offsetX = (int) (($scaledW - self::CANVAS_WIDTH) / 2);
+            $offsetY = (int) (($scaledH - self::CANVAS_HEIGHT) / 2);
+            imagecopy($canvas, $resized, 0, 0, $offsetX, $offsetY, self::CANVAS_WIDTH, self::CANVAS_HEIGHT);
+            imagedestroy($resized);
+        } else {
+            $sourceBg = imagecolorat($source, 0, 0);
+            $fillColor = imagecolorallocate($canvas, ($sourceBg >> 16) & 0xFF, ($sourceBg >> 8) & 0xFF, $sourceBg & 0xFF);
+            imagefilledrectangle($canvas, 0, 0, self::CANVAS_WIDTH, self::CANVAS_HEIGHT, $fillColor);
+
+            $scale = min(self::CANVAS_WIDTH / $srcW, self::CANVAS_HEIGHT / $srcH);
+            $scaledW = (int) round($srcW * $scale);
+            $scaledH = (int) round($srcH * $scale);
+            $resized = imagecreatetruecolor($scaledW, $scaledH);
+            imagecopyresampled($resized, $source, 0, 0, 0, 0, $scaledW, $scaledH, $srcW, $srcH);
+            $offsetX = (int) round((self::CANVAS_WIDTH - $scaledW) / 2);
+            $offsetY = (int) round((self::CANVAS_HEIGHT - $scaledH) / 2);
+            imagecopy($canvas, $resized, $offsetX, $offsetY, 0, 0, $scaledW, $scaledH);
+            imagedestroy($resized);
+        }
+
         imagedestroy($source);
-        imagedestroy($resized);
         imagesavealpha($canvas, true);
         imagealphablending($canvas, true);
         $veilColor = imagecolorallocatealpha($canvas, 0, 0, 0, 70);

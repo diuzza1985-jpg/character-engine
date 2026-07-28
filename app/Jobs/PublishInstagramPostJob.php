@@ -81,7 +81,12 @@ class PublishInstagramPostJob implements ShouldQueue
                 return;
             }
 
-            $storyBinary = app(StoryComposerService::class)->compose(Storage::disk('local')->get($sourcePath), '');
+            // "conversazione" (mockup puro) e "screenshot" (bolle overlay sopra una foto, ma
+            // vicine ai bordi laterali) condividono lo stesso bug reale: un crop centrato taglia
+            // il testo dei fumetti. Qualunque altro formato è una foto reale senza testo vicino
+            // ai bordi, dove il crop-to-fill resta la scelta giusta (default di compose()).
+            $cropToFill = ! in_array($post->narrative_format, ['conversazione', 'screenshot'], true);
+            $storyBinary = app(StoryComposerService::class)->compose(Storage::disk('local')->get($sourcePath), '', $cropToFill);
             $storyPath = "generations/{$post->character->tenant_id}/{$post->character_id}/"
                 .now()->format('Ymd_His').'_'.Str::random(6).'_story_share.png';
             Storage::disk('local')->put($storyPath, $storyBinary);

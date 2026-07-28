@@ -149,7 +149,15 @@ class ImageTextOverlayService
      * string], stesso principio "canvas invece di overlay" descritto dall'utente.
      */
     private const MOCKUP_WIDTH = 1080;
-    private const MOCKUP_HEIGHT = 1350;
+    private const HEADER_HEIGHT = 160;
+    // Canvas alto quanto serve al contenuto reale — non più un'altezza fissa che restava vuota
+    // sopra la conversazione quando i messaggi erano pochi (bug reale, confronto post/story).
+    // Clampato nel range di aspect ratio che Instagram accetta per un'immagine singola a questa
+    // larghezza (da 4:5 fino a 1.91:1): MAX coincide non a caso con la vecchia altezza fissa,
+    // che era già il limite portrait; MIN è il limite landscape, un pavimento per non uscire
+    // dal formato accettato con uno scambio brevissimo.
+    private const MOCKUP_MIN_HEIGHT = 600;
+    private const MOCKUP_MAX_HEIGHT = 1350;
 
     public function renderConversationMockup(string $characterName, array $messages): string
     {
@@ -170,7 +178,16 @@ class ImageTextOverlayService
         }
 
         $width = self::MOCKUP_WIDTH;
-        $height = self::MOCKUP_HEIGHT;
+
+        // Layout calcolato PRIMA di creare il canvas (nessun disegno ancora): serve a sapere
+        // quanto contenuto c'è davvero, per dimensionare il canvas di conseguenza invece che
+        // ancorare il contenuto dentro un'altezza fissa arbitraria.
+        $layout = $this->layoutBubbles($width, $fontPath, $characterName, $messages);
+        $topPadding = (int) round($layout['fontSize'] * 0.8);
+        $bottomMargin = 50;
+        $desiredHeight = self::HEADER_HEIGHT + $topPadding + $layout['totalHeight'] + $bottomMargin;
+        $height = (int) max(self::MOCKUP_MIN_HEIGHT, min(self::MOCKUP_MAX_HEIGHT, $desiredHeight));
+
         $canvas = imagecreatetruecolor($width, $height);
         $background = imagecolorallocate($canvas, 242, 242, 247);
         imagefilledrectangle($canvas, 0, 0, $width, $height, $background);
@@ -188,8 +205,8 @@ class ImageTextOverlayService
             }
         }
 
-        $headerHeight = $this->drawConversationHeader($canvas, $width, $fontPath, $contactName);
-        $this->drawConversationBubbles($canvas, $width, $height, $headerHeight, $fontPath, $characterName, $messages);
+        $this->drawConversationHeader($canvas, $width, $fontPath, $contactName);
+        $this->drawBubbleLayout($canvas, $width, self::HEADER_HEIGHT + $topPadding, $fontPath, $layout);
 
         ob_start();
         imagepng($canvas);
@@ -198,9 +215,9 @@ class ImageTextOverlayService
         return $output;
     }
 
-    private function drawConversationHeader($canvas, int $width, string $fontPath, string $contactName): int
+    private function drawConversationHeader($canvas, int $width, string $fontPath, string $contactName): void
     {
-        $headerHeight = 160;
+        $headerHeight = self::HEADER_HEIGHT;
         $headerBg = imagecolorallocate($canvas, 255, 255, 255);
         imagefilledrectangle($canvas, 0, 0, $width, $headerHeight, $headerBg);
         $border = imagecolorallocate($canvas, 222, 222, 227);
@@ -226,11 +243,14 @@ class ImageTextOverlayService
         $bbox = imagettfbbox($nameSize, 0, $fontPath, $contactName);
         $nameWidth = abs($bbox[4] - $bbox[0]);
         imagettftext($canvas, $nameSize, 0, (int) round(($width - $nameWidth) / 2), $headerHeight - 22, $nameColor, $fontPath, $contactName);
-
-        return $headerHeight;
     }
 
-    private function drawConversationBubbles($canvas, int $width, int $height, int $headerHeight, string $fontPath, string $characterName, array $messages): void
+    /**
+     * Prima passata (nessun disegno): calcola bolle/orari/altezze. Usata sia per dimensionare il
+     * canvas in renderConversationMockup() sia per disegnare in drawBubbleLayout() — un'unica
+     * fonte di verità, così le due cose non possono mai andare fuori sincrono tra loro.
+     */
+    private function layoutBubbles(int $width, string $fontPath, string $characterName, array $messages): array
     {
         $fontSize = 26;
         $timeSize = 17;
@@ -238,15 +258,12 @@ class ImageTextOverlayService
         $bubblePaddingY = (int) round($fontSize * 0.6);
         $lineHeight = (int) round($fontSize * 1.3);
         $maxBubbleTextWidth = (int) round($width * 0.62);
-        $sideMargin = (int) round($width * 0.06);
         $bubbleGap = (int) round($fontSize * 0.5);
+        // Gap esplicito tra il fondo della bolla e il testo dell'orario (bug reale: prima
+        // l'orario si posizionava alla baseline "altezza font" dal fondo bolla, che visivamente
+        // lo faceva sembrare incollato — serve un distacco vero, non solo lo spazio del glifo).
+        $bubbleTimeGap = (int) round($fontSize * 0.5);
         $timeGap = (int) round($timeSize * 1.6);
-
-        $receivedBg = imagecolorallocate($canvas, 233, 233, 235);
-        $receivedText = imagecolorallocate($canvas, 30, 30, 30);
-        $sentBg = imagecolorallocate($canvas, 0, 132, 255);
-        $sentText = imagecolorallocate($canvas, 255, 255, 255);
-        $timeColor = imagecolorallocate($canvas, 142, 142, 150);
 
         // Orari sintetici: nessun mittente ha bisogno di inventare un orario plausibile, basta
         // che scorrano in avanti in modo coerente — stesso principio "cosmetico, non narrativo"
@@ -255,11 +272,6 @@ class ImageTextOverlayService
         $baseHour = 20;
         $baseMinute = 6;
 
-        // Prima passata (stesso principio di overlayChatBubbles): calcola bolle/orari/altezze
-        // senza disegnare, cosi' da poter ancorare il blocco in fondo al canvas invece che in
-        // cima — uno screenshot di chat vero mostra sempre gli ultimi messaggi vicino al basso,
-        // non un blocco appeso sotto l'header con un vuoto enorme sotto se la conversazione e'
-        // breve.
         $bubbles = [];
         $totalHeight = 0;
         foreach ($messages as $message) {
@@ -271,15 +283,40 @@ class ImageTextOverlayService
             $time = sprintf('%02d:%02d', $baseHour + intdiv($baseMinute + $minutesElapsed, 60), ($baseMinute + $minutesElapsed) % 60);
 
             $bubbles[] = ['lines' => $lines, 'height' => $bubbleHeight, 'sent' => $sent, 'time' => $time];
-            $totalHeight += $bubbleHeight + $timeGap + $bubbleGap;
+            $totalHeight += $bubbleHeight + $bubbleTimeGap + $timeSize + $timeGap + $bubbleGap;
         }
         $totalHeight -= $bubbleGap;
 
-        $topLimit = $headerHeight + (int) round($fontSize * 0.8);
-        $bottomMargin = 50;
-        $y = max($topLimit, $height - $bottomMargin - $totalHeight);
+        return [
+            'bubbles' => $bubbles,
+            'totalHeight' => $totalHeight,
+            'fontSize' => $fontSize,
+            'timeSize' => $timeSize,
+            'bubblePaddingX' => $bubblePaddingX,
+            'bubblePaddingY' => $bubblePaddingY,
+            'lineHeight' => $lineHeight,
+            'bubbleGap' => $bubbleGap,
+            'bubbleTimeGap' => $bubbleTimeGap,
+            'timeGap' => $timeGap,
+        ];
+    }
 
-        foreach ($bubbles as $bubble) {
+    private function drawBubbleLayout($canvas, int $width, int $startY, string $fontPath, array $layout): void
+    {
+        $sideMargin = (int) round($width * 0.06);
+        ['fontSize' => $fontSize, 'timeSize' => $timeSize, 'bubblePaddingX' => $bubblePaddingX,
+            'bubblePaddingY' => $bubblePaddingY, 'lineHeight' => $lineHeight, 'bubbleGap' => $bubbleGap,
+            'bubbleTimeGap' => $bubbleTimeGap, 'timeGap' => $timeGap] = $layout;
+
+        $receivedBg = imagecolorallocate($canvas, 233, 233, 235);
+        $receivedText = imagecolorallocate($canvas, 30, 30, 30);
+        $sentBg = imagecolorallocate($canvas, 0, 132, 255);
+        $sentText = imagecolorallocate($canvas, 255, 255, 255);
+        $timeColor = imagecolorallocate($canvas, 142, 142, 150);
+
+        $y = $startY;
+
+        foreach ($layout['bubbles'] as $bubble) {
             $lineWidths = array_map(function (string $line) use ($fontPath, $fontSize) {
                 $bbox = imagettfbbox($fontSize, 0, $fontPath, $line);
                 return abs($bbox[4] - $bbox[0]);
@@ -300,14 +337,14 @@ class ImageTextOverlayService
                 $textY += $lineHeight;
             }
 
-            $y += $bubble['height'];
+            $y += $bubble['height'] + $bubbleTimeGap;
 
             $bbox = imagettfbbox($timeSize, 0, $fontPath, $bubble['time']);
             $timeWidth = abs($bbox[4] - $bbox[0]);
             $timeX = $bubble['sent'] ? $width - $sideMargin - $timeWidth : $sideMargin;
             imagettftext($canvas, $timeSize, 0, $timeX, $y + $timeSize, $timeColor, $fontPath, $bubble['time']);
 
-            $y += $timeGap + $bubbleGap;
+            $y += $timeSize + $timeGap + $bubbleGap;
         }
     }
 

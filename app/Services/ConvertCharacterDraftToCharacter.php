@@ -59,11 +59,17 @@ class ConvertCharacterDraftToCharacter
         // riepilogo/update-in-place successivo, altrimenti un admin che le ha corrette a mano in
         // Filament (checkpoint umano, documento temi-attualità sez. 3.C) se le vedrebbe rimpiazzate
         // silenziosamente ogni volta che l'utente riapre e risalva il questionario.
+        // Entrambe le suggestioni vengono generate, non solo quella attiva oggi (YouTube/parole
+        // chiave): le subreddit restano dormienti finché non arriva l'approvazione OAuth Reddit,
+        // ma vengono comunque popolate ora così non serve un backfill quando quel giorno arriva —
+        // nessun lavoro sprecato, solo non ancora usato.
         if ($isNewSettings) {
-            $suggested = $this->suggestHotTopicSubreddits($draft);
-            if ($suggested) {
-                $settings->update(['hot_topic_subreddits' => $suggested]);
-            }
+            $suggestedSubreddits = $this->suggestHotTopicSubreddits($draft);
+            $suggestedKeywords = $this->suggestHotTopicKeywords($draft);
+            $settings->update(array_filter([
+                'hot_topic_subreddits' => $suggestedSubreddits ?: null,
+                'hot_topic_keywords' => $suggestedKeywords ?: null,
+            ]));
         }
 
         CharacterVisualProfile::updateOrCreate(
@@ -223,6 +229,74 @@ TXT;
             return is_array($data['subreddits'] ?? null) ? array_values(array_filter($data['subreddits'])) : [];
         } catch (Throwable $e) {
             Log::warning('ConvertCharacterDraftToCharacter: eccezione nel suggerimento subreddit, proseguo senza', ['draft_id' => $draft->id, 'error' => $e->getMessage()]);
+            return [];
+        }
+    }
+
+    /**
+     * Suggerisce 3-6 parole chiave pertinenti alla nicchia/interessi del personaggio, usate da
+     * character:check-hot-topics per il match contro il pool condiviso di video di tendenza
+     * YouTube (fonte attiva per "tema_caldo" — sostituisce Reddit finché quello resta dormiente,
+     * non un secondo formato separato). Stesso principio di suggestHotTopicSubreddits(): best-
+     * effort, checkpoint umano in Filament prima dell'uso in produzione, nessun blocco alla
+     * creazione se la chiamata fallisce.
+     *
+     * @return array<int, string>
+     */
+    private function suggestHotTopicKeywords(CharacterDraft $draft): array
+    {
+        $niche = implode(', ', $draft->niche ?? []);
+        $hobbies = implode(', ', $draft->hobbies ?? []);
+        $goal = $draft->goal ?? '';
+
+        if ($niche === '' && $hobbies === '') {
+            return [];
+        }
+
+        $prompt = <<<TXT
+Suggerisci un piccolo elenco di parole chiave (in italiano, 1-3 parole ciascuna) pertinenti agli interessi e alla nicchia di un personaggio con questo profilo:
+- Nicchia/obiettivo: {$goal} — {$niche}
+- Hobby/interessi: {$hobbies}
+
+Servono per riconoscere, tra i titoli e le descrizioni di video di tendenza su YouTube, quali sono pertinenti a questo personaggio — devono essere termini che comparirebbero davvero in un titolo di video sull'argomento, non categorie astratte troppo generiche (es. "intelligenza artificiale" va bene, "tecnologia" da sola è troppo vago).
+
+Restituisci un JSON con un solo campo "keywords": un array di 3-6 stringhe.
+TXT;
+
+        try {
+            $response = Http::withToken(config('services.openai.key'))
+                ->timeout(60)
+                ->post('https://api.openai.com/v1/chat/completions', [
+                    'model' => config('services.openai.text_model'),
+                    'messages' => [['role' => 'user', 'content' => $prompt]],
+                    'response_format' => [
+                        'type' => 'json_schema',
+                        'json_schema' => [
+                            'name' => 'suggerimento_keyword',
+                            'strict' => true,
+                            'schema' => [
+                                'type' => 'object',
+                                'additionalProperties' => false,
+                                'required' => ['keywords'],
+                                'properties' => [
+                                    'keywords' => ['type' => 'array', 'items' => ['type' => 'string']],
+                                ],
+                            ],
+                        ],
+                    ],
+                ]);
+
+            if ($response->failed()) {
+                Log::warning('ConvertCharacterDraftToCharacter: suggerimento keyword tema caldo fallito', ['draft_id' => $draft->id, 'status' => $response->status()]);
+                return [];
+            }
+
+            $content = $response->json('choices.0.message.content');
+            $data = $content ? json_decode($content, true) : null;
+
+            return is_array($data['keywords'] ?? null) ? array_values(array_filter($data['keywords'])) : [];
+        } catch (Throwable $e) {
+            Log::warning('ConvertCharacterDraftToCharacter: eccezione nel suggerimento keyword tema caldo, proseguo senza', ['draft_id' => $draft->id, 'error' => $e->getMessage()]);
             return [];
         }
     }

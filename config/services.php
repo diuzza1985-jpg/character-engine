@@ -44,11 +44,16 @@ return [
     'newsdata' => [
         'key' => env('NEWSDATA_API_KEY'),
     ],
+    // Dormiente: RedditService (commit e290b7c) resta pronto per quando/se arriva l'approvazione
+    // OAuth (Reddit ha chiuso sia l'endpoint pubblico anonimo, maggio 2026, sia la registrazione
+    // app self-service, novembre 2025) — non è usato da nessun comando attivo oggi
+    // (character:check-hot-topics usa YoutubeTrendingService), ma il codice non va perso.
     'reddit' => [
         'client_id' => env('REDDIT_CLIENT_ID'),
         'client_secret' => env('REDDIT_CLIENT_SECRET'),
-        // Reddit richiede uno User-Agent descrittivo e univoco per ogni app (regola loro, non
-        // opzionale) — il default generico va sostituito prima di andare oltre la fase di test.
         'user_agent' => env('REDDIT_USER_AGENT', 'CharacterEngineBot/1.0 (script; read-only)'),
+    ],
+    'youtube' => [
+        'key' => env('YOUTUBE_API_KEY'),
     ],
 ];

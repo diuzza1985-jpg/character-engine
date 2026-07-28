@@ -9,7 +9,7 @@ class CharacterEditorialSettings extends Model
     protected $table = 'character_editorial_settings';
     protected $fillable = [
         'character_id', 'max_giorni_silenzio', 'diario_ogni_n_post',
-        'goal', 'goal_secondary', 'target_audience', 'niche', 'hot_topic_subreddits',
+        'goal', 'goal_secondary', 'target_audience', 'niche', 'hot_topic_subreddits', 'hot_topic_keywords',
     ];
     protected function casts(): array
     {
@@ -19,6 +19,7 @@ class CharacterEditorialSettings extends Model
             'target_audience' => 'array',
             'niche' => 'array',
             'hot_topic_subreddits' => 'array',
+            'hot_topic_keywords' => 'array',
         ];
     }
     public function character()

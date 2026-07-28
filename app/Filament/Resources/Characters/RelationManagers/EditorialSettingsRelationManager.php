@@ -31,9 +31,13 @@ class EditorialSettingsRelationManager extends RelationManager
                     ->minValue(0)
                     ->default(2)
                     ->required(),
+                TagsInput::make('hot_topic_keywords')
+                    ->label('Parole chiave per i temi caldi (YouTube)')
+                    ->helperText('Suggerite automaticamente alla creazione del personaggio (non verificate) — controlla che siano pertinenti prima di lasciarle attive: character:check-hot-topics le confronta contro i video di tendenza YouTube per trovare temi di attualità su cui reagire.')
+                    ->placeholder('es. intelligenza artificiale'),
                 TagsInput::make('hot_topic_subreddits')
-                    ->label('Subreddit per i temi caldi')
-                    ->helperText('Suggerite automaticamente alla creazione del personaggio (non verificate) — controlla che esistano davvero su Reddit e siano pertinenti prima di lasciarle attive: character:check-hot-topics le usa per cercare temi di attualità su cui reagire.')
+                    ->label('Subreddit per i temi caldi (Reddit — dormiente)')
+                    ->helperText('Non ancora in uso: Reddit richiede un\'app OAuth approvata manualmente (nessuna registrazione self-service dal novembre 2025). Queste subreddit sono già suggerite e pronte per quando l\'approvazione arriverà.')
                     ->placeholder('es. technology'),
             ]);
     }
@@ -45,10 +49,15 @@ class EditorialSettingsRelationManager extends RelationManager
             ->columns([
                 TextColumn::make('max_giorni_silenzio')
                     ->label('Giorni massimi di silenzio'),
-                TextColumn::make('hot_topic_subreddits')
-                    ->label('Subreddit temi caldi')
+                TextColumn::make('hot_topic_keywords')
+                    ->label('Parole chiave temi caldi')
                     ->formatStateUsing(fn (?array $state) => $state ? implode(', ', $state) : '—')
                     ->wrap(),
+                TextColumn::make('hot_topic_subreddits')
+                    ->label('Subreddit temi caldi (dormiente)')
+                    ->formatStateUsing(fn (?array $state) => $state ? implode(', ', $state) : '—')
+                    ->wrap()
+                    ->toggleable(isToggledHiddenByDefault: true),
                 TextColumn::make('updated_at')
                     ->label('Aggiornato il')
                     ->dateTime()

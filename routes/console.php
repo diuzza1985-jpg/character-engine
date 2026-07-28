@@ -15,7 +15,7 @@ Schedule::command('schedule:process-due')->everyFifteenMinutes();
 Schedule::command('character:live-tick')->daily();
 Schedule::command('character-drafts:prune-expired')->daily();
 // Formato "tema_caldo" (documento temi-attualità, sez. 3): "ogni poche ore" per restare
-// ragionevoli sul piano gratuito Reddit (100 richieste/minuto) e sul costo delle chiamate LLM
-// di giudizio — non serve una cadenza più fitta, un tema "caldo" resta valido per giorni
-// (CheckHotTopics::MAX_TOPIC_AGE_DAYS).
+// ragionevoli sul costo delle chiamate LLM di giudizio (YoutubeTrendingService costa poche unità
+// per ciclo, non è il vincolo) — non serve una cadenza più fitta, un tema "caldo" resta valido
+// per giorni (CheckHotTopics::MAX_TOPIC_AGE_DAYS).
 Schedule::command('character:check-hot-topics')->everyFourHours();

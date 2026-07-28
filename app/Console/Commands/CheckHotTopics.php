@@ -4,7 +4,7 @@ namespace App\Console\Commands;
 
 use App\Models\Character;
 use App\Models\HotTopic;
-use App\Services\RedditService;
+use App\Services\YoutubeTrendingService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -12,13 +12,24 @@ use RuntimeException;
 use Throwable;
 
 /**
- * Formato "tema_caldo" (documento temi-attualità, sez. 3): un personaggio reagisce a
- * controversie/discussioni virali su Reddit pertinenti alla sua nicchia. Filtro a due stadi
- * (sez. 3.C):
- *  1) grezzo — punteggio/velocità di commenti sopra soglia, nessuna chiamata LLM ancora;
- *  2) giudizio LLM dedicato che decide se è davvero abbastanza rilevante/"caldo", con una
- *     guardia esplicita lato codice sulle categorie a rischio — non lasciata al solo giudizio
- *     libero del modello.
+ * Formato "tema_caldo" (documento temi-attualità, sez. 3): un personaggio reagisce a un tema di
+ * tendenza pertinente alla sua nicchia. Fonte attiva: YouTube Data API v3 (videos.list,
+ * chart=mostPopular) — Reddit resta dormiente (RedditService, commit e290b7c: sia l'endpoint
+ * pubblico anonimo sia la registrazione OAuth self-service sono bloccati da Reddit dal 2026).
+ *
+ * Architettura a pool condiviso, non una chiamata per personaggio: YoutubeTrendingService recupera
+ * UN pool di video in tendenza per l'intero ciclo (poche chiamate, indipendenti dal numero di
+ * personaggi — search.list costerebbe 100 unità a chiamata, ~100 ricerche/giorno in totale;
+ * videos.list ne costa 1). Il match contro le parole chiave di ciascun personaggio avviene dopo,
+ * in memoria, gratis.
+ *
+ * Filtro a due stadi invariato (sez. 3.C):
+ *  1) grezzo — la parola chiave del personaggio compare davvero in un video del pool, nessuna
+ *     chiamata LLM ancora (i video del pool sono già "mostPopular", quindi già virali per
+ *     definizione: lo stadio 1 qui verifica la PERTINENZA, non la popolarità);
+ *  2) giudizio LLM dedicato che decide se è davvero abbastanza rilevante/"caldo", con una guardia
+ *     esplicita lato codice sulle categorie a rischio — non lasciata al solo giudizio libero del
+ *     modello.
  * Se approvato, crea un HotTopic "pending": la stessa "disponibilità per il prossimo ciclo
  * editoriale" già usata per $diarioDisponibile, ma con contenuto vero (titolo/sintesi) invece di
  * un semplice booleano, quindi persistita invece che calcolata al volo.
@@ -27,11 +38,7 @@ class CheckHotTopics extends Command
 {
     protected $signature = 'character:check-hot-topics';
 
-    protected $description = 'Controlla le subreddit di ogni personaggio per temi "caldi" pertinenti alla sua nicchia e marca una disponibilità per il prossimo ciclo editoriale';
-
-    private const MIN_SCORE = 500;
-
-    private const MIN_COMMENT_VELOCITY_PER_HOUR = 15.0;
+    protected $description = 'Confronta le parole chiave di ogni personaggio contro i video di tendenza YouTube e marca una disponibilità per il prossimo ciclo editoriale';
 
     private const MAX_CANDIDATES_PER_CHARACTER = 3;
 
@@ -44,16 +51,29 @@ class CheckHotTopics extends Command
     // libero dell'LLM").
     private const RISK_CATEGORIES = ['politica_elettorale', 'tragedia', 'cronaca_nera'];
 
-    public function handle(RedditService $reddit): int
+    public function handle(YoutubeTrendingService $youtube): int
     {
         $this->expireStaleTopics();
 
+        try {
+            $pool = $youtube->fetchTrendingPool();
+        } catch (Throwable $e) {
+            Log::warning('CheckHotTopics: impossibile recuperare il pool di tendenze YouTube, salto questo ciclo', ['error' => $e->getMessage()]);
+            $this->error("Pool YouTube non disponibile: {$e->getMessage()}");
+            return self::SUCCESS;
+        }
+
+        if (empty($pool)) {
+            $this->info('Pool di tendenze YouTube vuoto, nessun controllo da fare.');
+            return self::SUCCESS;
+        }
+
         $characters = Character::whereHas('editorialSettings', function ($q) {
-            $q->whereNotNull('hot_topic_subreddits');
+            $q->whereNotNull('hot_topic_keywords');
         })->get();
 
         foreach ($characters as $character) {
-            $this->processCharacter($character, $reddit);
+            $this->processCharacter($character, $pool);
         }
 
         return self::SUCCESS;
@@ -66,7 +86,7 @@ class CheckHotTopics extends Command
             ->update(['status' => 'expired']);
     }
 
-    private function processCharacter(Character $character, RedditService $reddit): void
+    private function processCharacter(Character $character, array $pool): void
     {
         // Un tema alla volta (stesso principio del diario centellinato): se ce n'è già uno
         // pending non ancora usato, non se ne cerca un altro finché non viene consumato o scade —
@@ -75,32 +95,29 @@ class CheckHotTopics extends Command
             return;
         }
 
-        $subreddits = $character->editorialSettings?->hot_topic_subreddits ?? [];
-        if (empty($subreddits)) {
+        $keywords = $character->editorialSettings?->hot_topic_keywords ?? [];
+        if (empty($keywords)) {
             return;
         }
 
-        $candidates = [];
-        foreach ($subreddits as $subreddit) {
-            try {
-                foreach ($reddit->fetchListing($subreddit, 'hot', 15) as $post) {
-                    if ($this->passesCrudeFilter($post)) {
-                        $candidates[] = $post;
+        $candidates = collect($pool)
+            ->filter(function (array $video) use ($keywords) {
+                foreach ($keywords as $keyword) {
+                    if ($this->matchesKeyword($video, $keyword)) {
+                        return true;
                     }
                 }
-            } catch (Throwable $e) {
-                Log::warning('CheckHotTopics: fetch Reddit fallito', [
-                    'character_id' => $character->id, 'subreddit' => $subreddit, 'error' => $e->getMessage(),
-                ]);
-            }
-        }
+                return false;
+            })
+            ->unique('video_id')
+            ->sortByDesc('view_count')
+            ->take(self::MAX_CANDIDATES_PER_CHARACTER)
+            ->values()
+            ->all();
 
         if (empty($candidates)) {
             return;
         }
-
-        usort($candidates, fn (array $a, array $b) => $b['score'] <=> $a['score']);
-        $candidates = array_slice($candidates, 0, self::MAX_CANDIDATES_PER_CHARACTER);
 
         try {
             $judged = $this->judge($character, $candidates);
@@ -113,12 +130,14 @@ class CheckHotTopics extends Command
             return;
         }
 
+        $chosen = $judged['indice_scelto'] ? ($candidates[$judged['indice_scelto'] - 1] ?? null) : null;
+
         HotTopic::create([
             'character_id' => $character->id,
             'title' => $judged['titolo'],
             'summary' => $judged['sintesi'],
-            'source_label' => $judged['fonte_label'] ?? null,
-            'source_url' => $judged['fonte_url'] ?? null,
+            'source_label' => $chosen ? "YouTube: {$chosen['channel_title']}" : null,
+            'source_url' => $chosen['url'] ?? null,
             'status' => 'pending',
             'discovered_at' => now(),
         ]);
@@ -126,36 +145,37 @@ class CheckHotTopics extends Command
         $this->info("Tema caldo trovato per {$character->name}: {$judged['titolo']}");
     }
 
-    private function passesCrudeFilter(array $post): bool
+    /**
+     * Stadio 1 (grezzo, zero costo): il pool è già "mostPopular", quindi già virale per
+     * definizione — qui non si verifica la popolarità, ma se la parola chiave del personaggio
+     * compare davvero nel titolo o nella descrizione del video.
+     */
+    private function matchesKeyword(array $video, string $keyword): bool
     {
-        if ($post['score'] >= self::MIN_SCORE) {
-            return true;
-        }
-        $ageHours = max(1, (time() - $post['created_utc']) / 3600);
-
-        return ($post['num_comments'] / $ageHours) >= self::MIN_COMMENT_VELOCITY_PER_HOUR;
+        $haystack = mb_strtolower($video['title'].' '.$video['description']);
+        return $keyword !== '' && str_contains($haystack, mb_strtolower($keyword));
     }
 
     private function judge(Character $character, array $candidates): array
     {
         $niche = implode(', ', $character->editorialSettings?->niche ?? []);
         $elenco = collect($candidates)
-            ->map(fn (array $c, int $i) => ($i + 1).". [r/{$c['subreddit']}] \"{$c['title']}\" (punteggio {$c['score']}, {$c['num_comments']} commenti)")
+            ->map(fn (array $c, int $i) => ($i + 1).". [{$c['channel_title']}] \"{$c['title']}\" ({$c['view_count']} visualizzazioni)"
+                .($c['description'] !== '' ? " — {$c['description']}" : ''))
             ->implode("\n");
 
         $prompt = <<<TXT
 Sei un filtro editoriale per {$character->name}, un personaggio la cui nicchia è: {$niche}.
-Di seguito una lista di post "hot" su Reddit dalle sue subreddit di riferimento. Il tuo compito è scegliere se UNO di questi temi è abbastanza pertinente e "caldo" da meritare un post di reazione da parte di {$character->name} oggi — non tutti i temi popolari vanno bene, deve essere davvero legato alla sua nicchia, non un argomento generico buono per chiunque.
+Di seguito una lista di video di tendenza su YouTube pertinenti alle sue parole chiave. Il tuo compito è scegliere se UNO di questi video rappresenta un tema abbastanza pertinente e "caldo" da meritare un post di reazione da parte di {$character->name} oggi — non basta che il video sia popolare, deve essere davvero legato alla sua nicchia, non un argomento generico buono per chiunque.
 
 {$elenco}
 
 Restituisci un JSON con questi campi:
-- rilevante: true solo se ALMENO UNO dei temi sopra è genuinamente pertinente alla nicchia di {$character->name} e abbastanza significativo da motivare un post; false altrimenti (es. tutti fuori tema, troppo interni alla community, o poco interessanti per un pubblico più ampio)
+- rilevante: true solo se ALMENO UNO dei video sopra rappresenta un tema genuinamente pertinente alla nicchia di {$character->name} e abbastanza significativo da motivare un post; false altrimenti (es. tutti fuori tema, o solo genericamente popolari senza legame vero con la sua nicchia)
 - categoria_rischio: uno tra "nessuna", "politica_elettorale", "tragedia", "cronaca_nera" — classifica onestamente il tema scelto anche se questo lo scarterebbe: non ammorbidire la classificazione per farlo passare
 - titolo: se rilevante, un titolo breve e neutro del tema scelto (max 10 parole), altrimenti stringa vuota
 - sintesi: se rilevante, 2-3 frasi neutre che riassumono il tema per chi deve scriverci un post, altrimenti stringa vuota
-- fonte_label: se rilevante, l'etichetta "r/nomesubreddit" del post scelto, altrimenti null
-- fonte_url: sempre null (non lo conosci da questa lista, verrà aggiunto altrove)
+- indice_scelto: se rilevante, il numero (1, 2, 3...) del video scelto nella lista sopra, altrimenti null
 
 Restituisci ESCLUSIVAMENTE il JSON, nessun markdown, nessun testo prima o dopo.
 TXT;
@@ -173,14 +193,13 @@ TXT;
                         'schema' => [
                             'type' => 'object',
                             'additionalProperties' => false,
-                            'required' => ['rilevante', 'categoria_rischio', 'titolo', 'sintesi', 'fonte_label', 'fonte_url'],
+                            'required' => ['rilevante', 'categoria_rischio', 'titolo', 'sintesi', 'indice_scelto'],
                             'properties' => [
                                 'rilevante' => ['type' => 'boolean'],
                                 'categoria_rischio' => ['type' => 'string', 'enum' => ['nessuna', 'politica_elettorale', 'tragedia', 'cronaca_nera']],
                                 'titolo' => ['type' => 'string'],
                                 'sintesi' => ['type' => 'string'],
-                                'fonte_label' => ['type' => ['string', 'null']],
-                                'fonte_url' => ['type' => ['string', 'null']],
+                                'indice_scelto' => ['type' => ['integer', 'null']],
                             ],
                         ],
                     ],
@@ -196,16 +215,6 @@ TXT;
         $data = json_decode($content, true);
         if (! is_array($data)) {
             throw new RuntimeException('Il giudizio tema caldo non ha restituito un JSON valido: '.$content);
-        }
-
-        // fonte_url va preso dal candidato scelto (il modello non lo conosce, gli è stato
-        // deliberatamente nascosto per non fargli inventare URL plausibili ma falsi) — matcha
-        // per fonte_label ("r/subreddit") sul primo candidato di quella subreddit tra i pochi
-        // passati, sufficiente perché sono al massimo 3.
-        if (! empty($data['fonte_label'])) {
-            $subredditLabel = str_replace('r/', '', $data['fonte_label']);
-            $match = collect($candidates)->firstWhere('subreddit', $subredditLabel);
-            $data['fonte_url'] = $match['permalink'] ?? null;
         }
 
         return $data;

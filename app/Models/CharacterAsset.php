@@ -9,7 +9,7 @@ class CharacterAsset extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['character_id', 'type', 'label', 'file_path', 'metadata', 'is_default'];
+    protected $fillable = ['character_id', 'type', 'label', 'file_path', 'metadata', 'is_default', 'hair_length_shown'];
 
     protected function casts(): array
     {

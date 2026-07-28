@@ -2,13 +2,16 @@
 namespace App\Jobs;
 use App\Models\Post;
 use App\Services\InstagramGraphService;
+use App\Services\StoryComposerService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\URL;
+use Illuminate\Support\Str;
 use RuntimeException;
 use Throwable;
 class PublishInstagramPostJob implements ShouldQueue
@@ -48,6 +51,58 @@ class PublishInstagramPostJob implements ShouldQueue
             'published_at' => now(),
         ]);
         Log::info("PublishInstagramPostJob: post {$post->id} pubblicato, platform_post_id={$published['id']}");
+
+        $this->shareToStoryIfNeeded($post);
+    }
+
+    /**
+     * Qualunque post pubblicato che NON sia già una story (image, carousel, con o senza overlay)
+     * viene condiviso automaticamente anche in story: stessa immagine (la prima, per un
+     * carousel), ricomposta in verticale da StoryComposerService — nessun nuovo testo
+     * sovrapposto, è la stessa foto del post, solo nel formato story.
+     *
+     * Wrappato in try/catch e mai rilanciato: un fallimento qui non deve mai far ritentare
+     * l'intero job (che ripubblicherebbe da capo il post originale, già pubblicato con successo
+     * sopra) né marcare fallito un post che invece è stato pubblicato correttamente.
+     */
+    private function shareToStoryIfNeeded(Post $post): void
+    {
+        if ($post->media_type === 'story' || $post->related_post_id) {
+            return; // è già una story, oppure è essa stessa una condivisione: mai incatenare.
+        }
+        if (Post::where('related_post_id', $post->id)->exists()) {
+            return; // già condiviso in precedenza (idempotenza, es. su un eventuale rerun).
+        }
+
+        try {
+            $sourcePath = $post->media_urls[0] ?? null;
+            if (! $sourcePath || ! Storage::disk('local')->exists($sourcePath)) {
+                Log::warning("PublishInstagramPostJob: nessuna immagine sorgente per condividere il post {$post->id} in story");
+                return;
+            }
+
+            $storyBinary = app(StoryComposerService::class)->compose(Storage::disk('local')->get($sourcePath), '');
+            $storyPath = "generations/{$post->character->tenant_id}/{$post->character_id}/"
+                .now()->format('Ymd_His').'_'.Str::random(6).'_story_share.png';
+            Storage::disk('local')->put($storyPath, $storyBinary);
+
+            $storyPost = Post::create([
+                'character_id' => $post->character_id,
+                'generation_id' => $post->generation_id,
+                'related_post_id' => $post->id,
+                'platform' => 'instagram',
+                'media_type' => 'story',
+                'narrative_format' => 'story_share',
+                'status' => 'draft',
+                'caption' => '',
+                'media_urls' => [$storyPath],
+            ]);
+
+            self::dispatch($storyPost->id);
+            Log::info("PublishInstagramPostJob: post {$post->id} condiviso anche in story (post {$storyPost->id})");
+        } catch (Throwable $e) {
+            Log::warning("PublishInstagramPostJob: condivisione in story fallita per post {$post->id}: {$e->getMessage()}");
+        }
     }
     private function buildSingleImageContainer(InstagramGraphService $instagram, Post $post, $account): string
     {

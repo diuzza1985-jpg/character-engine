@@ -15,7 +15,7 @@ class EditorialBrainService
 {
     private const REQUIRED_FIELDS = ['decisione', 'motivazione', 'formato', 'idea', 'testo', 'testo_overlay', 'prompt_immagine', 'carousel_slides', 'messaggi_chat', 'messaggi_conversazione', 'storyline_da_aggiornare', 'used_news'];
 
-    private function buildResponseSchema(bool $forcePublish, bool $diarioDisponibile = true): array
+    private function buildResponseSchema(bool $forcePublish, bool $diarioDisponibile = true, bool $temaCaldoDisponibile = false): array
     {
         return [
             'type' => 'object',
@@ -29,7 +29,7 @@ class EditorialBrainService
                 'motivazione' => ['type' => 'string'],
                 'formato' => [
                     'type' => ['string', 'null'],
-                    'enum' => $this->formatoEnum($diarioDisponibile),
+                    'enum' => $this->formatoEnum($diarioDisponibile, $temaCaldoDisponibile),
                 ],
                 'idea' => ['type' => 'string'],
                 'testo' => ['type' => ['string', 'null']],
@@ -74,7 +74,7 @@ class EditorialBrainService
      * 3) — stesso principio già in uso per il pavimento di pubblicazione (11.12): è lo schema a
      * impedire l'abuso, non un'istruzione testuale che il modello potrebbe non rispettare sempre.
      */
-    private function formatoEnum(bool $diarioDisponibile): array
+    private function formatoEnum(bool $diarioDisponibile, bool $temaCaldoDisponibile = false): array
     {
         // "reel" volutamente escluso (sez. 12.5, stesso principio di 11.13 per carousel):
         // non esiste alcuna pipeline di generazione video dietro questa opzione, solo
@@ -93,12 +93,25 @@ class EditorialBrainService
         if ($diarioDisponibile) {
             $enum[] = 'diario';
         }
+        // "tema_caldo" (documento temi-attualità, sez. 3): disponibile solo quando
+        // character:check-hot-topics ha già trovato e approvato un tema per questo personaggio
+        // (HotTopic pending) — stesso principio di "diario", è lo schema a impedire che il
+        // modello lo scelga a vuoto, non un'istruzione testuale che potrebbe ignorare.
+        if ($temaCaldoDisponibile) {
+            $enum[] = 'tema_caldo';
+        }
         return $enum;
     }
     /**
      * @param bool $forcePublish true quando i giorni di silenzio del personaggio hanno superato
      *   la soglia configurata (character_editorial_settings.max_giorni_silenzio) — in quel caso
      *   "non_pubblicare" smette di essere un'opzione valida per questo ciclo.
+     */
+    /**
+     * @param ?array{titolo: string, sintesi: string} $temaCaldo il tema "caldo" già approvato
+     *   da character:check-hot-topics per questo personaggio (HotTopic pending), se presente —
+     *   la sua sola presenza (non un booleano separato) determina se "tema_caldo" è un formato
+     *   scegliibile, stesso principio di $diarioDisponibile ma con contenuto vero da passare.
      */
     public function decide(
         Character $character,
@@ -108,8 +121,9 @@ class EditorialBrainService
         ?int $maxGiorniSilenzio = null,
         ?string $instructions = null,
         bool $diarioDisponibile = true,
+        ?array $temaCaldo = null,
     ): array {
-        $prompt = $this->buildPrompt($character, $context, $forcePublish, $daysSinceLastPost, $maxGiorniSilenzio, $instructions, $diarioDisponibile);
+        $prompt = $this->buildPrompt($character, $context, $forcePublish, $daysSinceLastPost, $maxGiorniSilenzio, $instructions, $diarioDisponibile, $temaCaldo);
 
         $response = Http::withToken(config('services.openai.key'))
             ->timeout(120)
@@ -123,7 +137,7 @@ class EditorialBrainService
                     'json_schema' => [
                         'name' => 'decisione_editoriale',
                         'strict' => true,
-                        'schema' => $this->buildResponseSchema($forcePublish, $diarioDisponibile),
+                        'schema' => $this->buildResponseSchema($forcePublish, $diarioDisponibile, $temaCaldo !== null),
                     ],
                 ],
             ])
@@ -153,8 +167,9 @@ class EditorialBrainService
         ?int $maxGiorniSilenzio = null,
         ?string $instructions = null,
         bool $diarioDisponibile = true,
+        ?array $temaCaldo = null,
     ): string {
-        return $this->buildPrompt($character, $context, $forcePublish, $daysSinceLastPost, $maxGiorniSilenzio, $instructions, $diarioDisponibile);
+        return $this->buildPrompt($character, $context, $forcePublish, $daysSinceLastPost, $maxGiorniSilenzio, $instructions, $diarioDisponibile, $temaCaldo);
     }
 
     private function validate(array $data, bool $forcePublish = false): void
@@ -199,6 +214,18 @@ class EditorialBrainService
                 throw new RuntimeException('Formato conversazione non deve avere prompt_immagine: nessuna immagine viene generata per questo formato.');
             }
         }
+        // used_news è il gancio già esistente nello schema (finora sempre false) proprio per
+        // questo caso d'uso — non lasciato al giudizio libero del modello: se sceglie
+        // "tema_caldo" deve dichiararlo esplicitamente, altrimenti fallisce qui invece di
+        // pubblicare un post che reagisce a una notizia senza segnalarlo nei dati.
+        if ($data['decisione'] === 'pubblica' && $data['formato'] === 'tema_caldo') {
+            if ($data['used_news'] !== true) {
+                throw new RuntimeException('Formato tema_caldo richiede used_news=true.');
+            }
+            if (trim($data['prompt_immagine'] ?? '') === '') {
+                throw new RuntimeException('Formato tema_caldo richiede prompt_immagine non vuoto.');
+            }
+        }
     }
 
    private function buildPrompt(
@@ -209,6 +236,7 @@ class EditorialBrainService
         ?int $maxGiorniSilenzio = null,
         ?string $instructions = null,
         bool $diarioDisponibile = true,
+        ?array $temaCaldo = null,
     ): string {
         $oggi = $context['oggi'];
         $documentation = $context['bible'] !== '' ? $context['bible'] : 'Nessuna sezione di bible trovata.';
@@ -224,11 +252,14 @@ class EditorialBrainService
         $regolaSilenzio = $forcePublish
             ? "\n" . $this->buildForcedParagraph($character, $daysSinceLastPost, $maxGiorniSilenzio) . "\n"
             : '';
+        $temaCaldoSezione = $temaCaldo !== null
+            ? "\n=== TEMA CALDO DI OGGI (disponibile come formato \"tema_caldo\") ===\n{$temaCaldo['titolo']}\n{$temaCaldo['sintesi']}\n"
+            : '';
         $compitoIntro = $forcePublish
             ? "Decidi cosa pubblica oggi {$character->name}: la regola sopra rende \"pubblica\" l'unica decisione possibile per questo ciclo, quindi il tuo compito è trovare l'idea più onesta possibile, non decidere se pubblicare."
             : "Decidi se oggi {$character->name} pubblica qualcosa o no.\nNon è obbligatorio pubblicare ogni giorno: una persona vera non lo fa. Se lo stato interno, le storyline e i contenuti recenti non offrono niente di genuino da raccontare oggi, \"non_pubblicare\" è una scelta corretta, non un fallimento — in quel caso lascia formato/testo/prompt_immagine a null e spiega comunque in motivazione perché.";
         $istruzioniPubblicazione = $forcePublish ? 'Per l\'idea di oggi:' : 'Se decidi di pubblicare:';
-        $formatiDisponibili = $this->describeFormatOptions($diarioDisponibile);
+        $formatiDisponibili = $this->describeFormatOptions($diarioDisponibile, $temaCaldo !== null);
 
         return <<<TXT
 Sei il cervello editoriale di {$character->name}.
@@ -260,7 +291,7 @@ Prima di scegliere una battuta o un bersaglio comico per oggi, controlla se hai 
 
 === VITA RECENTE (eventi già vissuti, pubblicati o no) ===
 {$vitaRecente}
-{$istruzioniSpecifiche}{$regolaSilenzio}
+{$temaCaldoSezione}{$istruzioniSpecifiche}{$regolaSilenzio}
 === IL TUO COMPITO ===
 {$compitoIntro}
 
@@ -277,7 +308,8 @@ Prima di scegliere una battuta o un bersaglio comico per oggi, controlla se hai 
     - se scegli il formato "screenshot": prompt_immagine descrive comunque una foto normale di {$character->name} (la conversazione non viene generata dentro l'immagine, viene sovrapposta dopo, quindi non descriverla visivamente in prompt_immagine); messaggi_chat contiene da 2 a 5 messaggi brevi (poche parole ciascuno, senza hashtag o emoji), in ordine, che alternano chi scrive come in un vero scambio tra {$character->name} e un'altra persona — quella persona resta solo narrativa, mai descritta in prompt_immagine (stessa regola di sopra sulle persone secondarie); testo resta la caption normale sotto il post, distinta dai messaggi. Per qualunque formato diverso da "screenshot", messaggi_chat deve essere null
     - se scegli il formato "conversazione": NON esiste nessuna foto per questo formato, è un mockup puro di un'app di messaggistica — prompt_immagine deve restare null (nessuna immagine viene generata). messaggi_conversazione contiene da 2 a 5 messaggi in ordine, ciascuno un oggetto {mittente, testo}: mittente è "{$character->name}" oppure il nome di un'altra persona reale per lui/lei (dedotto dalle relazioni/bible sopra, mai un nome generico inventato sul momento se esiste già una persona pertinente nella sua vita); testo è breve (poche parole, senza hashtag o emoji); deve leggersi come un vero scambio a due, non un monologo — quindi non tutti i messaggi dello stesso mittente di fila. testo (la caption sotto il post) resta breve e distinta dai messaggi. Per qualunque formato diverso da "conversazione", messaggi_conversazione deve essere null
     - se scegli il formato "diario": testo è un pensiero breve in prima persona, tono riflessivo e privato, frasi semplici, NESSUN hashtag e NESSUNA call-to-action — non è un contenuto promozionale, è più vicino a una pagina scritta per sé che qualcuno ha visto per caso; prompt_immagine descrive uno sfondo quieto coerente con lo stato interno di oggi, non serve un primo piano del personaggio
-    - used_news è sempre false per ora: le notizie non sono ancora collegate a questo flusso
+    - se scegli il formato "tema_caldo": reagisci al TEMA CALDO DI OGGI indicato sopra, come farebbe {$character->name} in prima persona sulla sua nicchia — non limitarti a riassumerlo, portaci il suo punto di vista genuino. prompt_immagine descrive un'immagine legata AL TEMA, non a {$character->name}: di default nessuna persona nell'inquadratura (stesso principio del formato "oggetto" sopra), a meno che il tema stesso non sia intrinsecamente astratto e un dettaglio concreto renda l'idea meglio di una persona; used_news deve essere true (è l'unico formato per cui succede)
+    - used_news è true solo per il formato "tema_caldo" (unico caso in cui il contenuto di oggi nasce da una fonte esterna, non dal personaggio stesso); per qualunque altro formato resta sempre false
 
 Restituisci ESCLUSIVAMENTE il JSON conforme allo schema fornito. Non usare markdown, non usare \`\`\`json, non aggiungere testo prima o dopo.
 TXT;
@@ -288,7 +320,7 @@ TXT;
      * enum passato allo schema strutturato (formatoEnum), così testo e vincolo tecnico non
      * possono mai disallinearsi.
      */
-    private function describeFormatOptions(bool $diarioDisponibile): string
+    private function describeFormatOptions(bool $diarioDisponibile, bool $temaCaldoDisponibile = false): string
     {
         $options = [
             'post (foto singola, il default — con una frase breve sovrapposta alla foto, stile quote-card, per non lasciarla "nuda")',
@@ -301,6 +333,10 @@ TXT;
 
         if ($diarioDisponibile) {
             $options[] = 'diario (un pensiero breve e privato, quasi ad alta voce — usalo con parsimonia, è un registro raro, non il tono di tutti i giorni)';
+        }
+
+        if ($temaCaldoDisponibile) {
+            $options[] = 'tema_caldo (reagisci al TEMA CALDO DI OGGI indicato sopra, un\'immagine legata al tema non a te)';
         }
 
         return implode(', ', $options);

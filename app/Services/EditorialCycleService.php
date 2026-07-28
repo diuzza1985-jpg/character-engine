@@ -4,6 +4,7 @@ use App\Models\Character;
 use App\Models\CharacterEditorialSettings;
 use App\Models\EditorialDecision;
 use App\Models\Generation;
+use App\Models\HotTopic;
 use App\Models\Post;
 use App\Models\Storyline;
 use Illuminate\Support\Facades\Log;
@@ -52,6 +53,14 @@ class EditorialCycleService
 
         $diarioDisponibile = $postsSinceLastDiario >= $settings->diario_ogni_n_post;
 
+        // Tema caldo (documento temi-attualità, sez. 3): al massimo un HotTopic "pending" per
+        // personaggio (character:check-hot-topics), stesso principio "disponibilità per il
+        // prossimo ciclo" di $diarioDisponibile ma con contenuto vero (titolo/sintesi) da passare
+        // al cervello editoriale, non solo un booleano — da qui la riga persistita invece di un
+        // conteggio calcolato al volo.
+        $hotTopic = HotTopic::where('character_id', $character->id)->where('status', 'pending')->latest('discovered_at')->first();
+        $temaCaldo = $hotTopic ? ['titolo' => $hotTopic->title, 'sintesi' => $hotTopic->summary] : null;
+
         $context = $this->contextBuilder->build($character);
 
         $generation = Generation::create([
@@ -64,7 +73,7 @@ class EditorialCycleService
         ]);
 
         try {
-            $decision = $this->brain->decide($character, $context, $forcePublish, $daysSinceLastPost, $settings->max_giorni_silenzio, $instructions, $diarioDisponibile);
+            $decision = $this->brain->decide($character, $context, $forcePublish, $daysSinceLastPost, $settings->max_giorni_silenzio, $instructions, $diarioDisponibile, $temaCaldo);
         } catch (Throwable $e) {
             Log::warning("Ciclo editoriale fallito per {$character->slug}: {$e->getMessage()}");
             $generation->update([
@@ -108,6 +117,10 @@ class EditorialCycleService
                 'caption' => $decision['testo'] ?? '',
                 'media_urls' => [],
             ]);
+
+            if ($hotTopic && $decision['formato'] === 'tema_caldo') {
+                $hotTopic->update(['status' => 'used', 'used_at' => now()]);
+            }
         }
 
         return ['generation' => $generation, 'decision' => $decision, 'editorial_decision' => $editorialDecision, 'post' => $post];
@@ -135,10 +148,11 @@ class EditorialCycleService
 
     private function mapFormatoToMediaType(?string $formato): string
     {
-        // "post", "diario", "oggetto", "screenshot" e "conversazione" sono tutti immagine singola
-        // per Instagram — la differenza narrativa tra loro vive in narrative_format, non in
-        // media_type ("screenshot"/"conversazione" sono solo un rendering diverso, nessun
-        // trattamento di pubblicazione dedicato serve, a differenza di carousel/story).
+        // "post", "diario", "oggetto", "screenshot", "conversazione" e "tema_caldo" sono tutti
+        // immagine singola per Instagram — la differenza narrativa tra loro vive in
+        // narrative_format, non in media_type ("screenshot"/"conversazione" sono solo un
+        // rendering diverso, "tema_caldo" solo una generazione standalone senza reference,
+        // nessun trattamento di pubblicazione dedicato serve, a differenza di carousel/story).
         // carousel/reel/story restano distinti perché richiedono davvero un trattamento diverso
         // in pubblicazione.
         //
@@ -146,6 +160,6 @@ class EditorialCycleService
         // EditorialBrainService::formatoEnum) perché non esiste una pipeline di generazione
         // video dietro — questo passthrough per "reel" resta morto ma innocuo: se mai riappare
         // qui è perché formatoEnum è stato toccato senza completare prima una vera pipeline video.
-        return in_array($formato, ['post', 'diario', 'oggetto', 'screenshot', 'conversazione'], true) ? 'image' : ($formato ?? 'image');
+        return in_array($formato, ['post', 'diario', 'oggetto', 'screenshot', 'conversazione', 'tema_caldo'], true) ? 'image' : ($formato ?? 'image');
     }
 }

@@ -8,7 +8,10 @@ use App\Models\CharacterDraft;
 use App\Models\CharacterEditorialSettings;
 use App\Models\CharacterRelationship;
 use App\Models\CharacterVisualProfile;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+use Throwable;
 
 /**
  * Trasforma una CharacterDraft in un Character reale — sia alla prima registrazione sia, da
@@ -41,7 +44,8 @@ class ConvertCharacterDraftToCharacter
         // solo da admin Filament, non fanno parte del questionario — un riepilogo (update-in-place)
         // non deve mai riportarli ai default se erano già stati personalizzati.
         $settings = CharacterEditorialSettings::firstOrNew(['character_id' => $character->id]);
-        if (! $settings->exists) {
+        $isNewSettings = ! $settings->exists;
+        if ($isNewSettings) {
             $settings->max_giorni_silenzio = 2;
             $settings->diario_ogni_n_post = 20;
         }
@@ -50,6 +54,17 @@ class ConvertCharacterDraftToCharacter
         $settings->target_audience = $draft->target_audience;
         $settings->niche = $draft->niche;
         $settings->save();
+
+        // Suggerite una volta sola, alla primissima creazione — mai risovrascritte su un
+        // riepilogo/update-in-place successivo, altrimenti un admin che le ha corrette a mano in
+        // Filament (checkpoint umano, documento temi-attualità sez. 3.C) se le vedrebbe rimpiazzate
+        // silenziosamente ogni volta che l'utente riapre e risalva il questionario.
+        if ($isNewSettings) {
+            $suggested = $this->suggestHotTopicSubreddits($draft);
+            if ($suggested) {
+                $settings->update(['hot_topic_subreddits' => $suggested]);
+            }
+        }
 
         CharacterVisualProfile::updateOrCreate(
             ['character_id' => $character->id],
@@ -140,6 +155,76 @@ class ConvertCharacterDraftToCharacter
         $parts = array_filter([$draft->hair_color, $draft->hair_length, $draft->hair_style]);
 
         return $parts ? ucfirst(implode(', ', $parts)) . '.' : 'Non specificato.';
+    }
+
+    /**
+     * Suggerisce 3-6 subreddit pertinenti alla nicchia/interessi del personaggio, usate poi da
+     * character:check-hot-topics per il formato "tema_caldo" (documento temi-attualità, sez. 3).
+     * Deliberatamente best-effort: nessuna verifica che le subreddit esistano davvero su Reddit
+     * o siano scritte correttamente — è compito dell'admin rivederle/correggerle in Filament
+     * prima che vengano usate in produzione (checkpoint umano, stesso principio già scritto per
+     * le reference delle relazioni in character-engine-coerenza-visiva-relazioni.md sez. 3). Se
+     * la chiamata fallisce, il personaggio resta comunque creato senza subreddit suggerite —
+     * l'admin le aggiunge a mano quando vuole, non è un blocco alla creazione.
+     *
+     * @return array<int, string>
+     */
+    private function suggestHotTopicSubreddits(CharacterDraft $draft): array
+    {
+        $niche = implode(', ', $draft->niche ?? []);
+        $hobbies = implode(', ', $draft->hobbies ?? []);
+        $goal = $draft->goal ?? '';
+
+        if ($niche === '' && $hobbies === '') {
+            return [];
+        }
+
+        $prompt = <<<TXT
+Suggerisci un piccolo elenco di subreddit di Reddit (in inglese, comunità reali e plausibili — solo il nome, senza "r/" davanti) pertinenti agli interessi e alla nicchia di un personaggio con questo profilo:
+- Nicchia/obiettivo: {$goal} — {$niche}
+- Hobby/interessi: {$hobbies}
+
+Servono per intercettare discussioni "calde" del momento pertinenti a questi argomenti. Scegli comunità generaliste e conosciute sull'argomento, non nicchie tecniche troppo specifiche dove sarebbe raro trovare un tema abbastanza generale da motivare un post pubblico.
+
+Restituisci un JSON con un solo campo "subreddits": un array di 3-6 stringhe (solo il nome della subreddit, minuscolo, senza spazi né "r/").
+TXT;
+
+        try {
+            $response = Http::withToken(config('services.openai.key'))
+                ->timeout(60)
+                ->post('https://api.openai.com/v1/chat/completions', [
+                    'model' => config('services.openai.text_model'),
+                    'messages' => [['role' => 'user', 'content' => $prompt]],
+                    'response_format' => [
+                        'type' => 'json_schema',
+                        'json_schema' => [
+                            'name' => 'suggerimento_subreddit',
+                            'strict' => true,
+                            'schema' => [
+                                'type' => 'object',
+                                'additionalProperties' => false,
+                                'required' => ['subreddits'],
+                                'properties' => [
+                                    'subreddits' => ['type' => 'array', 'items' => ['type' => 'string']],
+                                ],
+                            ],
+                        ],
+                    ],
+                ]);
+
+            if ($response->failed()) {
+                Log::warning('ConvertCharacterDraftToCharacter: suggerimento subreddit fallito', ['draft_id' => $draft->id, 'status' => $response->status()]);
+                return [];
+            }
+
+            $content = $response->json('choices.0.message.content');
+            $data = $content ? json_decode($content, true) : null;
+
+            return is_array($data['subreddits'] ?? null) ? array_values(array_filter($data['subreddits'])) : [];
+        } catch (Throwable $e) {
+            Log::warning('ConvertCharacterDraftToCharacter: eccezione nel suggerimento subreddit, proseguo senza', ['draft_id' => $draft->id, 'error' => $e->getMessage()]);
+            return [];
+        }
     }
 
     /**

@@ -169,16 +169,20 @@ class GenerateInstagramPostJob implements ShouldQueue
             // statica come un post normale — comportamento invariato, non un fix.
             $isOggetto = $result['decision']['formato'] === 'oggetto';
             $isConversazione = $result['decision']['formato'] === 'conversazione';
+            $isTemaCaldo = $result['decision']['formato'] === 'tema_caldo';
 
-            // Rinforzo il negative prompt sia per stagione (12.6) sia per "oggetto": più
-            // affidabile di contare solo sull'istruzione positiva nel prompt_immagine (che il
-            // cervello editoriale scrive da solo, quindi può comunque sbagliare).
+            // Rinforzo il negative prompt sia per stagione (12.6) sia per "oggetto"/"tema_caldo":
+            // più affidabile di contare solo sull'istruzione positiva nel prompt_immagine (che il
+            // cervello editoriale scrive da solo, quindi può comunque sbagliare). "tema_caldo"
+            // segue lo stesso principio di "oggetto" (documento temi-attualità sez. 3, punto 4):
+            // di default nessuna persona raffigurata, l'immagine è legata al tema non al
+            // personaggio.
             $negativePrompt = self::CERVELLO_NEGATIVE_PROMPT;
             $seasonalTerms = self::SEASONAL_NEGATIVE_TERMS[TemporalContext::season()] ?? [];
             if ($seasonalTerms) {
                 $negativePrompt .= ', ' . implode(', ', $seasonalTerms);
             }
-            if ($isOggetto) {
+            if ($isOggetto || $isTemaCaldo) {
                 $negativePrompt .= ', person, human, face, body, portrait';
             }
 
@@ -194,11 +198,13 @@ class GenerateInstagramPostJob implements ShouldQueue
                 $seed = null;
                 $imageBinary = $overlay->renderConversationMockup($character->name, $result['decision']['messaggi_conversazione'] ?? []);
             } else {
-                // "oggetto" usa un modello generico senza reference (generateStandalone, sezione 2.2):
-                // generate() è legato a fal-ai/ideogram/character, pensato per PRESERVARE il personaggio
-                // — l'opposto di quello che serve qui. $reference resta null in questo ramo, quindi
-                // 'reference_asset_id' più sotto sarà null per i post "oggetto" (atteso, non un bug).
-                if ($isOggetto) {
+                // "oggetto"/"tema_caldo" usano un modello generico senza reference
+                // (generateStandalone, sezione 2.2): generate() è legato a fal-ai/ideogram/character,
+                // pensato per PRESERVARE il personaggio — l'opposto di quello che serve qui (un
+                // oggetto, o un'immagine legata a un tema esterno). $reference resta null in questo
+                // ramo, quindi 'reference_asset_id' più sotto sarà null per questi due formati
+                // (atteso, non un bug).
+                if ($isOggetto || $isTemaCaldo) {
                     $reference = null;
                     $imageResult = $fal->generateStandalone($result['decision']['prompt_immagine'], $negativePrompt);
                 } else {
@@ -256,7 +262,7 @@ class GenerateInstagramPostJob implements ShouldQueue
                 'image_path' => $imagePath,
                 'media_paths' => $mediaPaths,
                 'seed' => $seed, // null per "conversazione": nessuna generazione Fal.ai in quel ramo
-                'reference_asset_id' => $reference?->id, // null per "oggetto"/"conversazione": nessuna reference selezionata in quei rami
+                'reference_asset_id' => $reference?->id, // null per "oggetto"/"conversazione"/"tema_caldo": nessuna reference selezionata in quei rami
                 'timeline_entry_id' => $timelineEntry->id,
             ])]);
         } catch (Throwable $e) {

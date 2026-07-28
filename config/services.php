@@ -44,4 +44,11 @@ return [
     'newsdata' => [
         'key' => env('NEWSDATA_API_KEY'),
     ],
+    'reddit' => [
+        'client_id' => env('REDDIT_CLIENT_ID'),
+        'client_secret' => env('REDDIT_CLIENT_SECRET'),
+        // Reddit richiede uno User-Agent descrittivo e univoco per ogni app (regola loro, non
+        // opzionale) — il default generico va sostituito prima di andare oltre la fase di test.
+        'user_agent' => env('REDDIT_USER_AGENT', 'CharacterEngineBot/1.0 (script; read-only)'),
+    ],
 ];

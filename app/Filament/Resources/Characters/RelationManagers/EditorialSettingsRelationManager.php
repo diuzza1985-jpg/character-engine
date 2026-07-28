@@ -5,6 +5,7 @@ namespace App\Filament\Resources\Characters\RelationManagers;
 use Filament\Actions\CreateAction;
 use Filament\Actions\DeleteAction;
 use Filament\Actions\EditAction;
+use Filament\Forms\Components\TagsInput;
 use Filament\Forms\Components\TextInput;
 use Filament\Resources\RelationManagers\RelationManager;
 use Filament\Schemas\Schema;
@@ -30,6 +31,10 @@ class EditorialSettingsRelationManager extends RelationManager
                     ->minValue(0)
                     ->default(2)
                     ->required(),
+                TagsInput::make('hot_topic_subreddits')
+                    ->label('Subreddit per i temi caldi')
+                    ->helperText('Suggerite automaticamente alla creazione del personaggio (non verificate) — controlla che esistano davvero su Reddit e siano pertinenti prima di lasciarle attive: character:check-hot-topics le usa per cercare temi di attualità su cui reagire.')
+                    ->placeholder('es. technology'),
             ]);
     }
 
@@ -40,6 +45,10 @@ class EditorialSettingsRelationManager extends RelationManager
             ->columns([
                 TextColumn::make('max_giorni_silenzio')
                     ->label('Giorni massimi di silenzio'),
+                TextColumn::make('hot_topic_subreddits')
+                    ->label('Subreddit temi caldi')
+                    ->formatStateUsing(fn (?array $state) => $state ? implode(', ', $state) : '—')
+                    ->wrap(),
                 TextColumn::make('updated_at')
                     ->label('Aggiornato il')
                     ->dateTime()

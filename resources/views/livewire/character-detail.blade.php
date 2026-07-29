@@ -6,7 +6,7 @@
     <div class="tabbar">
         <div class="tab" :class="{ active: tab === 'riepilogo' }" x-on:click="tab = 'riepilogo'">Riepilogo</div>
         <div class="tab" :class="{ active: tab === 'parentele' }" x-on:click="tab = 'parentele'">Parentele</div>
-        <div class="tab locked" :class="{ active: tab === 'assets' }" x-on:click="tab = 'assets'">🔒 Assets & Immagini</div>
+        <div class="tab" :class="{ active: tab === 'assets' }" x-on:click="tab = 'assets'">Assets & Immagini</div>
     </div>
 
     <div x-show="tab === 'riepilogo'">
@@ -163,5 +163,42 @@
                 <button class="btn-warn" type="button">Acquista crediti →</button>
             </div>
         @endif
+
+        <div class="field-label" style="margin-top:22px;">Foto già caricate</div>
+        @if($assets->isEmpty())
+            <div class="generic-pane">Nessuna foto ancora caricata per questo personaggio.</div>
+        @else
+            <div style="display:flex; gap:12px; flex-wrap:wrap; margin-top:8px;">
+                @foreach($assets as $asset)
+                    <div style="width:120px;">
+                        <img src="{{ \Illuminate\Support\Facades\Storage::disk('local')->url($asset->file_path) }}" alt="{{ $asset->type }}" style="width:120px; height:120px; object-fit:cover; border-radius:8px;">
+                        <p class="field-hint" style="margin:4px 0 0;">{{ $asset->type }}</p>
+                        <p class="field-hint" style="margin:0; opacity:.7;">{{ $asset->source === 'user_uploaded' ? 'Caricata da te' : 'Generata AI' }}</p>
+                    </div>
+                @endforeach
+            </div>
+        @endif
+
+        <div class="field-label" style="margin-top:22px;">Carica una foto</div>
+        <p class="field-hint">Niente crediti: caricare una tua foto (o generata da un'AI) è sempre gratuito, non passa da nessuna generazione automatica.</p>
+
+        <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:flex-start; margin-top:8px;">
+            <input type="text" class="text-input" style="width:180px;" wire:model="newAssetType" placeholder="Tipo (es. face, full_body)">
+            <input type="file" wire:model="newAssetFile" accept="image/*">
+        </div>
+        @error('newAssetType') <p class="field-hint" style="color:#F58E4E;">{{ $message }}</p> @enderror
+        @error('newAssetFile') <p class="field-hint" style="color:#F58E4E;">{{ $message }}</p> @enderror
+
+        <div style="margin-top:14px; padding:12px; border:1px solid var(--ink-soft); border-radius:8px; opacity:.9;">
+            <label style="display:flex; gap:8px; align-items:flex-start; cursor:pointer;">
+                <input type="checkbox" wire:model="newAssetConsent" style="margin-top:3px;">
+                <span class="field-hint" style="margin:0;">{{ $consentText }}</span>
+            </label>
+        </div>
+        @error('newAssetConsent') <p class="field-hint" style="color:#F58E4E;">{{ $message }}</p> @enderror
+
+        <div class="actions" style="margin-top:14px;">
+            <button class="btn-primary" wire:click="uploadAsset" wire:loading.attr="disabled">Carica foto</button>
+        </div>
     </div>
 </div>

@@ -9,7 +9,7 @@ class CharacterAsset extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['character_id', 'type', 'label', 'file_path', 'metadata', 'is_default', 'hair_length_shown'];
+    protected $fillable = ['character_id', 'type', 'label', 'file_path', 'metadata', 'is_default', 'hair_length_shown', 'source'];
 
     protected function casts(): array
     {
@@ -22,5 +22,10 @@ class CharacterAsset extends Model
     public function character()
     {
         return $this->belongsTo(Character::class);
+    }
+
+    public function consent()
+    {
+        return $this->hasOne(AssetUploadConsent::class);
     }
 }

@@ -1,198 +1,123 @@
-# Character Engine — Il mondo intorno al personaggio (comparse, mondo narrativo)
+# Character Engine — Il mondo intorno al personaggio: comparse, relazioni visive, asset caricati dall'utente e riduzione della ripetitività
 
-> Nota: questo file non esisteva nel repository — ricreato qui su richiesta esplicita, come
-> destinazione locale per il lavoro descritto sotto. Se esiste una versione precedente in una
-> cartella cloud collegata con decisioni aggiuntive, va riconciliata a mano con questa.
+*Documento di analisi/design — 29 luglio 2026. Nasce da una discussione sul caso reale di Sofia: **marito Fernando, 1 cane, 1 pesce rosso, 2 figlie** — un mondo narrativo pensato fin dall'inizio ma oggi solo parzialmente reale nei contenuti pubblicati. Un personaggio senza un contorno credibile non sembra vivo: serve un piano per rendere le persone e gli animali intorno al personaggio principale una parte strutturata del sistema, non un'aggiunta a mano caso per caso. Scritto senza accesso diretto al codice (il repo Laravel vive in WSL, fuori dalla cartella collegata a questa sessione): tutto quello che segue è dedotto da `character-engine-project.md` più ricerca web sui punti tecnici/legali aperti — da verificare contro il codice reale in Claude Code locale prima di implementare, stessa disciplina già seguita per gli altri documenti di analisi di questo progetto.*
 
-## Contesto
+**Correzione post-revisione (stesso giorno)**: la prima stesura proponeva un'etichetta rigida `characters.role` (`principale`/`comparsa_umana`/`comparsa_animale`) per distinguere i personaggi "secondari". Osservazione corretta ricevuta in revisione: **non è detto che un personaggio nato come "secondario" resti tale per sempre** — l'utente potrebbe in futuro decidere di collegarlo a un proprio profilo social e farlo pubblicare in autonomia. Un'etichetta di ruolo fissata alla creazione renderebbe quella transizione un cambio di categoria (e probabilmente una migrazione dati), invece che una semplice attivazione di funzionalità già opzionali per schema. Sezione 1 riscritta di conseguenza: nessuna nuova colonna di ruolo, riuso di `characters.status` (già esistente, già pensato per essere mutabile).
 
-Caso reale che ha fatto nascere l'iniziativa: Sofia ha un marito (Fernando), un cane, un pesce
-rosso e due figlie (Sara, Marta) — oggi solo parzialmente presenti nei contenuti pubblicati.
-L'obiettivo è dare a un personaggio un mondo narrativo vero: persone/animali collegati con una
-propria identità (non solo testo), generazione immagine con più soggetti, asset caricati
-dall'utente, riduzione della ripetitività nei contenuti.
+## 0. Punto di partenza — cosa esiste davvero oggi
 
-## Principio guida (vincolante, non derogabile)
+- **`character_relationships`** (sez. 4/11.5 di `character-engine-project.md`): `character_id, name, type, sentiment (-1..1), last_interaction_at, notes`. Solo testo — nessuna identità visiva, nessun asset, nessuna bible. Aggiornata dagli eventi di vita che la toccano (`target_relationship` su `life_events`), il sentiment rilassa verso neutro nel tempo se non succede nulla.
+- **Capacità informale già disponibile** (segnalata in conversazione, non documentata prima d'ora): il pannello permette già di creare un secondo `Character` (umano), con la sua bible/profilo visivo/asset, senza collegarlo a un `social_account` e senza che pubblichi — usata finora a mano per dare un volto a Fernando, ma **scollegata strutturalmente** da `character_relationships`: oggi possono esistere due rappresentazioni parallele della "stessa" Fernando (una riga di relazione testuale + un secondo `Character` con foto), senza un legame esplicito tra le due.
+- **Gap già segnalato e lasciato aperto in 11.16**: *"idea per una fase futura, non costruita: campo di descrizione visiva per relazione + asset di riferimento dedicato, comunque mai insieme al personaggio principale nella stessa immagine — limite del modello `fal-ai/ideogram/character`, che... usa solo la prima reference di `reference_image_urls`, ignorando le altre"*. Questo documento riprende esattamente quel punto, ora con requisiti concreti (vedi sez. 3 per l'aggiornamento tecnico: il limite di ideogram/character non blocca più il resto, esiste un'alternativa — verificata sotto).
+- **Wizard pubblico** (11.18): oggi permette di definire solo il personaggio principale. Nessuna possibilità per l'utente di nominare/descrivere familiari, amici o animali in fase di creazione.
+- **Due bug di ripetitività distinti, osservati in produzione** (non un solo problema):
+  1. Fernando viene nominato **sempre e solo** per "costruire qualcosa" — causa nota: un'istruzione specifica messa nel prompt (probabile esempio hardcoded sopravvissuto, dello stesso tipo già purgato una volta in 11.16 per "la SUA tazza, la SUA scrivania" — principio del progetto: nessun esempio fisso nel codice condiviso multi-tenant).
+  2. Sofia parla di bug/programmazione in quasi ogni post, nonostante "mille temi" possibili — causa probabilmente diversa dalla 1: non un'istruzione hardcoded ma una pressione insufficiente verso la varietà (bible troppo sbilanciata sul lavoro, o nessun conteggio deterministico che scoraggi la ripetizione di *categoria*, solo di *evento specifico* — vedi sez. 5 per il dettaglio).
 
-**La bible di un personaggio è dato, non codice.** Ogni personaggio ha la propria bible
-indipendente, non condivisa con altri — è del tutto legittimo scrivere/arricchire i testi della
-bible di un personaggio specifico (agganci narrativi per una relazione, hobby, storyline) con
-riferimenti diretti a lui/lei per nome.
+## 1. Personaggi secondari: nessuna nuova categoria, solo funzionalità non (ancora) attivate
 
-**Il codice del cervello editoriale deve restare completamente generico.** Nessuna riga di
-logica — `EditorialBrainService`, `EditorialContextBuilder`, `GenerateInstagramPostJob`,
-qualunque servizio condiviso — può contenere un riferimento hardcoded a un personaggio o a una
-relazione specifica (es. mai `"Sofia"` o `"Fernando"` come stringa in codice). Deve valere
-identico per qualunque personaggio crei un domani un utente dal wizard. Stesso principio già
-seguito e già corretto in passato (sez. 11.16 del project log, esempi "la SUA tazza, la SUA
-scrivania" sostituiti con placeholder generici).
+**Principio guida, corretto in revisione**: ogni persona/animale nel mondo di un personaggio è un `Character` a pieno titolo fin dal primo giorno — non un'entità di serie B con un'etichetta che lo marchi come "comparsa" in modo permanente. Ciò che distingue oggi Sofia (pubblica, ha un profilo social, ha un motore di vita attivo) da Fernando (non pubblica ancora, non ha un profilo proprio) non è *cosa sono*, ma *quali funzionalità opzionali sono già state attivate per loro* — esattamente lo stesso principio già seguito nello schema per `character_state`/`storylines`/`character_editorial_settings` (1:1 opzionali, create al bisogno con `firstOrCreate`, mai un blocco strutturale se mancano).
 
-Verifica pratica prima di ogni commit su codice condiviso: `grep` del nome di qualunque
-personaggio esistente sul diff — zero risultati attesi.
+- **Nessuna nuova colonna di ruolo.** Si riusa `characters.status` (già esistente: `draft`/`active`/`paused`) esattamente per il significato che ha già: un personaggio "secondario" è semplicemente un `Character` creato in `draft` (o comunque privo di un `social_account` collegato) — non un tipo diverso di riga. Se domani l'utente vuole farlo pubblicare in autonomia, il percorso è **identico** a quello che già esiste per attivare qualunque personaggio: collegare un `social_account`, eventualmente popolare `character_editorial_settings`, e includerlo nello scheduling/nel tick del motore di vita. Nessuna migrazione dati, nessun cambio di categoria — solo l'attivazione di componenti che il personaggio non aveva ancora, non che *non poteva* avere.
+- **Il vero punto da verificare in Claude Code locale** (non assumere): `character:live-tick`/`ProcessScheduledPostJob` oggi ciclano su quali personaggi esattamente? Se già filtrano per `status = active` (o per la presenza di un `social_account`), allora un personaggio in `draft` è già "dormiente" di default, senza bisogno di nessuna nuova logica — il gate esiste già. Da confermare prima di scrivere codice nuovo per un problema che potrebbe già essere risolto.
+- Bible/profilo visivo restano condizionati alla *natura* dell'entità (persona vs animale), non al suo *ruolo* futuro: per un animale ha senso una bible ridotta o assente (solo `character_visual_profile` essenziale — aspetto, taglia/razza — più 1-2 asset foto), a prescindere dal fatto che resti sempre "secondario" o che un giorno, ipotesi remota ma non impossibile, si decida di dargli un profilo proprio.
+- **Implementato — commit `9a7df76` (29 luglio 2026)**: `character_relationships.related_character_id` (nullable, `nullOnDelete`, FK verso `characters`) + relazione `relatedCharacter()`. Quando valorizzata, quella relazione ha un'identità visiva vera (un `Character` reale dietro); quando `null`, resta una relazione solo testuale (va benissimo per un cliente citato una volta, non ha senso creargli un intero `Character` per un'unica menzione). Questo unifica le due rappresentazioni parallele di prima (la riga di relazione testuale e il secondo `Character` creato a mano nel pannello) in una sola, coerente. **Verificato con un caso reale**: creato Fernando come vero `Character` (`status: draft`, nessun `social_account`), collegato alla relazione testuale già esistente di Sofia — confermato completamente dormiente su tutta la pipeline (anche invocato esplicitamente per id, `character:live-tick` lo rifiuta), esattamente come previsto dal principio di sez. 1.
+- Filament: nessun nuovo campo "Ruolo" da introdurre — basta rendere visibile in lista, per i personaggi senza `social_account` collegato, un'indicazione informativa ("non collegato a nessun profilo social" già derivabile dai dati esistenti), non una categoria salvata a parte.
 
-## Fase 0 — Investigazione (completata)
+## 1.1 Eliminazione personaggi — soft delete + cestino — implementato (29 luglio 2026)
 
-Prima di toccare qualunque cosa, indagine sulla bible reale di Sofia e sul prompt effettivamente
-renderizzato, per capire la causa esatta di due problemi osservati in produzione.
+**Implementato — commit `47689b6`** (dettagli completi in `character-engine-project.md` sez. 11.23): dal menu "Personaggi" pubblico, azione **Elimina** → modale di conferma → **eliminazione logica** (`SoftDeletes`, già presente sul model ma prima inutilizzata) → il personaggio finisce nel **cestino** (`/personaggi/cestino`), da cui **Ripristina** o **Elimina per sempre** (`forceDelete()`, con una seconda modale di avviso più severa). Aggiunta nella stessa sessione anche l'eliminazione delle bozze in corso (fisica, non nel cestino — le bozze non hanno identità/bible/asset da preservare).
 
-### 1) Perché Fernando è sempre "quello che costruisce"
+**Dei tre punti lasciati aperti qui inizialmente, resta da chiudere solo il primo** — gli altri due sono ancora punti di prodotto non affrontati, non ancora risolti dall'implementazione:
 
-Non un singolo hardcoded, ma sovra-rappresentazione strutturale nella sua bible (query dirette su
-`character_bible_sections`, character_id=3, verificate a mano):
+- **Interazione con `character_relationships.related_character_id` (sez. 1) — ancora aperto**: questa funzione è stata costruita **prima** che questa colonna esistesse (il collegamento comparse è ancora Fase 1 del piano, non implementato). Da decidere quando si arriva a quella fase: alla `forceDelete()`, la relazione collegata va cancellata a cascata, o `related_character_id` va riportato a `null` (relazione degradata a solo testo, opzione consigliata per non perdere nome/tipo/sentiment/note solo perché è sparita l'identità visiva collegata)?
+- **Personaggio "principale" con `social_account` attivo — ancora aperto**: nessun blocco/avviso specifico implementato oggi se si elimina un personaggio che sta pubblicando attivamente — l'eliminazione procede comunque. Decisione di prodotto ancora da prendere (bloccare, avvisare in modo evidente nella modale, o scollegare automaticamente prima).
+- **Tabelle collegate (`posts`/`generations`/`timeline_entries`/`storylines`)** — risolto per il caso di eliminazione definitiva: verificato che le foreign key a cascata ripuliscono automaticamente bible/asset/post/generazioni collegate alla `forceDelete()`. Non verificato esplicitamente il comportamento per il solo soft delete (probabile che restino intatte, dato che la riga `Character` esiste ancora — solo da confermare se qualche query le naviga tramite una relazione che richiederebbe `withTrashed()`).
 
-- `famiglia`: intro generica su Fernando (lavoratore, onesto, paziente) + una passione alternativa
-  mai sfruttata altrove ("Le sue passioni" → griglia/cucina) + un'intera sottosezione dedicata
-  **"## Il costruttore della famiglia"** con l'aneddoto delle assi di legno, ripreso ancora in
-  "## Il loro rapporto".
-- `umorismo`: sezione nominata **`# Il tormentone di Fernando`** (running gag strutturato con
-  varianti pronte), voce esplicita in "bersagli preferiti" → *"Fernando e i suoi progetti
-  'semplicissimi'"*, aneddoto del cacciavite/veranda ripreso ancora in "Di cosa ride davvero
-  Sofia".
-- Prompt renderizzato (`EditorialBrainService::lastPrompt()`), sezione "Stories": tra 7 idee
-  suggerite, l'unica su Fernando è *"Fernando che costruisce qualcosa di improbabile"*.
+## 2. Wizard e pannello: nominare/definire le comparse — implementato (29 luglio 2026)
 
-Fernando ha un solo aggancio narrativo "pronto all'uso", ripetuto 4-5 volte in punti diversi della
-bible — gli altri tratti esistono ma non hanno mai un gancio comico/narrativo scritto da nessuna
-parte.
+**Implementato — commit `26b1522`**: nuovo step "mondo" nel wizard pubblico (`CharacterCreationWizard`), sempre presente (non gated su edit-mode né su `auth()->check()`, a differenza di "Approfondimento"), subito dopo "appearance". Biforcato per tipo fin dalla prima versione, come deciso: ramo persona (nome, tipo di relazione da un elenco fisso di 11 — riusa `CharacterKinship::RELATIONSHIP_TYPES` — , descrizione libera) e ramo animale (nome, specie obbligatoria, razza opzionale, aspetto fisico breve).
 
-**Fix (dato, non codice)**: aggiunto un secondo aggancio comico in `umorismo` → bersagli preferiti
-("le grigliate epiche di Fernando"), riusando un tratto già stabilito in `famiglia` ma mai
-sfruttato.
+- `character_drafts.world_characters` (json, nullable): elenco di voci `{tipo: persona|animale, nome, relazione?, descrizione?, specie?, razza?, aspetto?, character_id?}`. Il `character_id` è assente alla prima compilazione e viene valorizzato da `syncWorldCharacters()` dopo la prima conversione, così una riconversione successiva (riapertura del questionario) aggiorna lo stesso `Character` invece di duplicarlo — stesso principio update-in-place già usato per il personaggio principale.
+- `ConvertCharacterDraftToCharacter::syncWorldCharacters()`: per ogni voce valida (nome non vuoto, tipo persona/animale) crea o aggiorna un `Character` reale in `status: draft`, senza social account — stesso meccanismo del personaggio principale, nessuna colonna di "ruolo" (coerente con la Fase 1).
+- **Verificato leggendo il codice reale, non deciso a tavolino** (nodo tecnico segnalato sopra): `character_visual_profile` è letto ovunque (`EditorialContextBuilder::buildVisualProfile()`, `ImagePromptBuilder`) tramite `array_filter()`, quindi campi nulli spariscono dal testo renderizzato senza alcun caso speciale. Conseguenza: nessun profilo dedicato per gli animali, nessuna generalizzazione forzata dei nomi campo — si popola solo `face_description` (per la persona: la `descrizione` libera; per l'animale: l'`aspetto` fisico breve), il resto resta `null` e degrada pulito.
+- **Decisione presa durante l'implementazione, non pianificata prima**: per le persone con un tipo di relazione valido si scrive anche una riga `character_kinships` (oltre a `character_relationships`) — così la persona compare anche nella tab "Parentele" già esistente, con l'etichetta inversa. Per gli animali non si scrive mai `character_kinships` (nessuna parentela sensata), solo `character_relationships` con `type = specie`.
+- Verificato in tinker con dati reali: creazione di una voce persona (relazione valida) e una animale, `Character`/`CharacterVisualProfile`/`CharacterRelationship`/`CharacterKinship` (solo per la persona) tutti corretti. Riconvertito lo stesso draft dopo aver modificato la descrizione: nessun secondo `Character` creato, lo stesso record aggiornato in place.
+- Suite 64 test/296 assertion verde. Verificato `git diff | grep -in "sofia|fernando"` — nessun match, codice generico.
+- **Deciso durante l'implementazione, non concordato prima**: il campo "foto opzionale" per ogni voce è stato rimandato alla Fase 4 — un upload senza il meccanismo di consenso/audit che lo accompagna sarebbe il ordine sbagliato di costruzione. Fino ad allora una voce del mondo del personaggio resta priva di reference visiva propria (il bug noto di Pippo, sez. 2 sotto, si chiude solo quando l'upload sarà collegato).
 
-### 2) Perché Sofia parla quasi solo di bug/programmazione
+Estendere `character_drafts` (già esteso una volta oltre lo spec originale, 11.18) con un elenco di persone/animali del suo mondo: nome, tipo di relazione, 2-3 frasi di descrizione libera, foto opzionale (caricata o generata — vedi sez. 4). `ConvertCharacterDraftToCharacter` crea, oltre al `Character` principale: un `Character` in `draft` (nessun `social_account`, nessuna impostazione editoriale) per ciascuna persona/animale nominato, più la riga `character_relationships` collegata via `related_character_id` — stesso identico meccanismo di creazione già usato per il personaggio principale, solo senza il passo successivo di attivazione (registrazione/gate crediti/collegamento social) che oggi si applica solo a lui.
 
-Confermato empiricamente sugli 8 post reali pubblicati (character_id=3, esclusi i 2 `story_share`
-senza caption propria): **tutti e 8** a tema tech/lavoro o Fernando-DIY. Zero post con Sara,
-Marta, Pippo, Minnie o Sushi come soggetto principale, pur essendo tutti citati nella bible.
+**Decisione di prodotto da prendere, non solo tecnica**: quanto approfondire l'UI per ogni comparsa nel wizard (un intero mini-step ripetibile per ciascuna, o un modulo più leggero "aggiungi persona/animale" con pochi campi)? Il rischio opposto è duplicare la complessità già notevole del wizard principale (7 step) per ogni singola comparsa. Consigliato: iniziare con un modulo leggero (nome, tipo, descrizione libera, foto opzionale) e lasciare l'arricchimento (bible più ricca, tratti visivi dettagliati) al pannello di modifica post-registrazione già esistente (11.18, "riaprire il questionario") — le comparse, come le storyline, evolvono nel tempo (un nuovo animale, una figlia che cresce), non sono definitive alla creazione.
 
-Cause trovate:
+**Il modulo va biforcato per tipo di entità, non è un unico form riusabile as-is** — osservazione aggiunta in revisione, corretta: "persona" e "animale" non condividono lo stesso set di domande sensate.
 
-- Solo **due** storyline esistevano per Sofia in tutto il DB — *"Progetto con Fernando"* e
-  *"Giornata con un cliente"* — nessuna su famiglia/animali/salute/hobby. Il prompt chiede di
-  considerare le storyline con più pressione come candidate: con solo queste due, il richiamo
-  verso tech/Fernando era strutturale.
-- **Bug di codice reale, generico**: `TimelineEntry.topic` non veniva più popolato dal flusso
-  attivo (`GenerateInstagramPostJob::handleEditorialBrainFlow()`) — solo il flusso legacy lo
-  scriveva da `LifeEvent.scene_hint['topic']`. La sezione "vita recente" del prompt mostrava
-  quindi sempre `topic: n/d`: nessun tracciamento strutturato di categoria, solo l'auto-giudizio
-  del modello sul testo libero delle caption recenti (impedisce di ripetere l'evento esatto, non
-  la categoria).
-- Nessuna regola di rotazione tematica esiste nella bible stessa (sezione `regole` letta per
-  intero: tutta su tono/etica, mai su varietà di argomento).
+- Prima domanda del modulo: persona o animale (determina tutto il resto del form, non solo un campo in più).
+- **Ramo persona**: nome, tipo di relazione (dropdown — coniuge/partner, figlio/a, genitore, amico/a, collega, cliente, altro), 2-3 frasi di descrizione libera (personalità/ruolo nella vita del personaggio principale), foto opzionale.
+- **Ramo animale**: nome, specie (dropdown — cane, gatto, pesce, uccello, altro + campo libero), eventuale razza, 1-2 frasi di aspetto fisico (colore, taglia, segni particolari — questo è ciò che serve davvero per la coerenza visiva, non una descrizione psicologica), foto opzionale. Nessun campo "tipo di relazione" nel senso umano (non ha senso un dropdown coniuge/figlio per un pesce rosso) — eventualmente un campo più semplice tipo "ruolo in famiglia" solo se utile a scopo narrativo (es. "cane di famiglia" vs "trovatello adottato di recente" come spunto per gli eventi di vita).
+- **Coerente con un problema già noto e mai sanato (11.19)**: la mancanza di una reference visiva stabile per gli animali ha già causato un bug reale in produzione — un cane inventato di sana pianta in un'immagine perché Pippo non aveva nessuna foto di riferimento salvata da nessuna parte (11.16, "fix di coerenza visiva"). Questo modulo, se costruito, è **la soluzione strutturale a quel problema specifico**, non solo una funzionalità nuova: senza un asset di riferimento per gli animali, quel bug resta strutturalmente non risolvibile, si può solo istruire il prompt a non inventare (tampone attuale) — con l'asset reale si può finalmente rendere Pippo davvero coerente da un'immagine all'altra.
+- **Nodo tecnico da verificare**: `character_visual_profile` (`age_description`, `face_description`, `hair_description`, `wardrobe_notes`, `visual_rules_text`) è uno schema pensato per persone — `wardrobe_notes`/`hair_description` non hanno un senso diretto per un animale (pelo ≠ capelli, nessun guardaroba). Da decidere in Claude Code locale: forzare comunque i campi esistenti con un uso "improprio" ma pratico (es. `hair_description` → descrizione del pelo, `wardrobe_notes` sempre vuoto), oppure generalizzare i nomi dei campi (rischio: tocca codice che già funziona per i personaggi umani esistenti), oppure un profilo visivo più snello dedicato agli animali. Non decidere a tavolino in questo documento — ispezionare prima come il codice usa davvero questi campi (stessa disciplina di sez. 6, punto 1) prima di scegliere.
 
-**Fix (codice, generico — verificato zero riferimenti a personaggi specifici nel diff)**:
-- `EditorialBrainService`: nuovo campo `topic` nello schema strutturato (categoria libera e
-  breve, es. "lavoro"/"famiglia"/"animali" — non un elenco fisso, il modello la sceglie da solo
-  ogni volta).
-- `GenerateInstagramPostJob::handleEditorialBrainFlow()`: passa `decision.topic` a
-  `TimelineEntry::create()` (prima assente).
-- `EditorialContextBuilder::buildTopicFrequency()`: conteggio deterministico (non
-  un'impressione) di quante delle ultime 8 pubblicazioni condividono ogni topic, calcolato sulla
-  cronologia reale di quel personaggio — generico per costruzione, nessuna categoria hardcoded.
-- Nuova sezione "VARIETÀ DI ARGOMENTI" nel prompt con il conteggio reale e un'istruzione esplicita
-  a scegliere altro se una categoria supera metà delle pubblicazioni recenti.
+## 3. Includere le comparse nell'immagine generata — il blocco tecnico di 11.16 ha ora un'alternativa verificata
 
-**Fix (dato, non codice)**: seminate due nuove storyline aperte per Sofia — *"Le domande
-impossibili di Marta"*, *"Pippo e la gallina di gomma"* — per competere con la coppia
-tech/Fernando-DIY nella pressione narrativa.
+Il limite noto (11.16): `fal-ai/ideogram/character` usa solo la prima immagine di `reference_image_urls`, quindi Sofia+Fernando (o Sofia+cane) nella stessa immagine era strutturalmente impossibile senza inventare uno dei due soggetti.
 
-### 3) Le pipeline schedulate già filtrano per stato attivo
+**Verificato oggi via ricerca**: `fal-ai/nano-banana-pro` (Google Gemini, disponibile su fal.ai) supporta esplicitamente la composizione multi-soggetto:
+- Accetta fino a **14 immagini di riferimento combinabili** in un'unica generazione.
+- Ha una funzione dedicata di "character consistency" che **mantiene la somiglianza per fino a 5 persone contemporaneamente** nella stessa modifica/generazione.
+- Prezzo: **$0.15/immagine** (standard), $0.30 per output 4K.
 
-Verificato leggendo il codice reale:
+Questo risolve esattamente il problema: passare la reference di Sofia + la reference di Fernando (o del cane), ottenere un'unica immagine coerente con entrambi. Un modello alternativo trovato ma meno chiaramente documentato è `fal-ai/vidu/reference-to-image` (accetta anch'esso `reference_image_urls` multipli, limite massimo non specificato nella documentazione consultata) — da considerare solo se nano-banana-pro non desse i risultati attesi.
 
-- `CharacterLiveTick::resolveCharacters()`: percorso automatico già `where('status','active')`;
-  percorso manuale (slug/ID esplicito) già blocca se `status !== 'active'`.
-- `MaterializeWeeklySchedule`: già `WeeklyScheduleSlot::where('enabled',true)
-  ->whereHas('character', fn($q)=>$q->where('status','active'))`.
-- `ProcessScheduledPostJob`/`schedule:process-due`: operano solo su righe `scheduled_posts`
-  esistenti, che per costruzione non possono esistere per un personaggio mai attivato.
+**Disegno proposto** (da verificare con chiamate reali prima di fidarsi, stessa disciplina di tutto il resto del progetto): quando la decisione del cervello editoriale nomina una relazione che ha `related_character_id` valorizzato **e** quella comparsa ha almeno un asset, `GenerateInstagramPostJob` instrada la generazione verso un nuovo metodo (es. `FalImageService::generateWithMultipleSubjects()`, nano-banana-pro) invece del percorso singolo-soggetto attuale (`generate()`/ideogram-character o `generateStandalone()`/flux-dev) — passando entrambe le reference. Aperto da decidere: se usare nano-banana-pro *solo* per i casi multi-soggetto (più probabile, per non toccare una pipeline singolo-soggetto già funzionante e più economica) o valutarlo come sostituto generale — non è detto lo stile visivo combaci esattamente con quello già consolidato per Sofia, va fatta una verifica visiva reale, non solo tecnica.
 
-**Conclusione**: un personaggio "comparsa" creato in `status: draft` è già completamente
-dormiente su tutta la pipeline automatica — nessuna nuova colonna di stato/filtro necessaria.
-Verificato anche con un caso reale in Fase 1 (vedi sotto).
+## 4. Asset caricati dall'utente (niente AI, niente crediti) + informativa legale
 
-## Fase 1 — Collegare le relazioni a personaggi veri (completata)
+Il meccanismo di upload esiste già lato admin (`AssetsRelationManager`, `FileUpload` reale su Storage, sez. 5 del project.md) — quello che manca è: (a) esporlo anche al pannello utente finale, non solo all'admin, (b) una via che *non* passi da `FalImageService`/non scali crediti, (c) un flusso di consenso legale esplicito prima di permetterlo.
 
-- Nuova colonna `character_relationships.related_character_id` (nullable, FK verso `characters`,
-  `nullOnDelete` — se il personaggio collegato viene eliminato, la relazione testuale
-  name/type/sentiment resta, torna solo narrativa).
-- `CharacterRelationship::relatedCharacter()` — belongsTo.
-- **Nessuna nuova colonna di "ruolo"** (niente `characters.role` o simili): un personaggio
-  "secondario" è un `Character` normale, creato in `status: draft` e senza `social_account`
-  collegato. Attivarlo un domani come profilo pubblicante a sé stante è la stessa identica
-  operazione già possibile oggi per qualunque personaggio.
-- **Verificato con un caso reale**, non solo in astratto: creato Fernando come `Character` vero
-  (status `draft`, nessun social account) e collegato alla relazione testuale già esistente di
-  Sofia (`character_relationships.id=2`). Confermato che è già completamente dormiente:
-  `Character::where('status','active')` non lo include; `php artisan character:live-tick 9`
-  (il suo id) rifiuta esplicitamente ("non è attivo, tick saltato").
+- Nuovo campo `character_assets.source` (`ai_generated` / `user_uploaded`) — quando `user_uploaded`, `GenerateInstagramPostJob`/qualunque logica di credito lo salta del tutto (nessuna chiamata Fal.ai, nessun addebito `credit_ledger`).
+- **Flusso di consenso — non è consulenza legale, va fatto rivedere da un legale prima del lancio**, ma questi sono i requisiti strutturali minimi da cui partire (dedotti da pratiche comuni di piattaforme che gestiscono contenuto caricato da utenti, più i principi generali italiani su diritto all'immagine — artt. 96-97 legge sul diritto d'autore — e trattamento dati personali/biometrici se il volto è riconoscibile, GDPR):
+  - Checkbox esplicita, non pre-selezionata, **separata** dall'accettazione generica dei Termini di Servizio, mostrata al momento dell'upload (non solo una volta in fase di registrazione).
+  - Testo chiaro: l'immagine caricata deve essere **o** generata via AI, **o** una foto reale di cui l'utente ha davvero i diritti e il consenso esplicito all'uso (es. una propria foto, o di una persona che ha acconsentito) — mai una foto di una persona reale identificabile senza il suo consenso.
+  - Riferimento esplicito alla normativa (diritto all'immagine + GDPR se applicabile) e scarico di responsabilità: l'utente dichiara il vero, la responsabilità della dichiarazione ricade su di lui; la piattaforma si riserva di rimuovere il contenuto e sospendere l'account in caso di segnalazione o sospetto fondato di violazione.
+  - **Il consenso va registrato come evento auditable** (timestamp, utente, versione esatta del testo accettato) — non solo una spunta nell'interfaccia senza traccia lato server: è la prova che la piattaforma ha davvero raccolto la dichiarazione, se mai dovesse servire.
+  - Punto da non sottovalutare per un prodotto multi-tenant: in caso di contenuto lesivo pubblicato su Instagram tramite la piattaforma, la piattaforma stessa (non solo il singolo creator) potrebbe essere coinvolta come corresponsabile — motivo in più per una revisione legale vera prima del lancio pubblico di questa funzione, non solo un testo scritto per buon senso.
 
-## Fase 2 — Wizard: persone/animali del mondo del personaggio (completata)
+## 5. Ridurre la ripetitività — due bug, due fix diversi
 
-- `character_drafts.world_characters` (json, nullable): elenco di voci
-  `{tipo: persona|animale, nome, relazione?, descrizione?, specie?, razza?, aspetto?, character_id?}`.
-  Il `character_id` è assente alla prima compilazione e viene valorizzato da
-  `syncWorldCharacters()` dopo la prima conversione, così una riconversione successiva
-  (riapertura del questionario) aggiorna lo stesso `Character` invece di duplicarlo — stesso
-  principio update-in-place già usato per il personaggio principale.
-- Nuovo step "mondo" nel wizard pubblico (`CharacterCreationWizard`), sempre presente (non gated
-  su edit-mode né su `auth()->check()`, a differenza di "Approfondimento"), subito dopo
-  "appearance". **Biforcato per tipo fin dalla prima versione**, come deciso: ramo persona (nome,
-  tipo di relazione da un elenco fisso di 11 — riusa `CharacterKinship::RELATIONSHIP_TYPES` — ,
-  descrizione libera) e ramo animale (nome, specie obbligatoria, razza opzionale, aspetto fisico
-  breve) — campi diversi, non una variante minore dello stesso form.
-- `ConvertCharacterDraftToCharacter::syncWorldCharacters()`: per ogni voce valida (nome non vuoto,
-  tipo persona/animale) crea o aggiorna un `Character` reale in `status: draft`, senza social
-  account — stesso meccanismo del personaggio principale, nessuna colonna di "ruolo" (coerente con
-  la decisione della Fase 1).
-- **Verificato leggendo il codice reale, non deciso a tavolino**: `character_visual_profile` è
-  letto ovunque (`EditorialContextBuilder::buildVisualProfile()`, `ImagePromptBuilder`) tramite
-  `array_filter()`, quindi campi nulli spariscono dal testo renderizzato senza alcun caso speciale.
-  Conseguenza: nessun profilo dedicato per gli animali, nessuna generalizzazione forzata dei nomi
-  campo — si popola solo `face_description` (per la persona: la `descrizione` libera; per
-  l'animale: l'`aspetto` fisico breve), tutto il resto resta `null` e degrada pulito.
-- **Decisione presa durante l'implementazione** (non solo `character_relationships`): per le
-  persone con un tipo di relazione valido si scrive anche una riga `character_kinships` (oltre
-  alla `character_relationships` narrativa), così il collegamento compare anche nella tab
-  "Parentele" con l'etichetta inversa già esistente. Per gli animali non si scrive mai
-  `character_kinships` (nessuna parentela sensata), solo `character_relationships` con
-  `type = specie`.
-- **Verificato in tinker con dati reali**: creato un draft con una voce persona (relazione
-  "marito") e una voce animale (specie "gatto"), eseguita `convert()` — confermate righe reali
-  `Character` (status draft), `CharacterVisualProfile.face_description`, `CharacterRelationship`
-  (type = relazione o specie), `CharacterKinship` (solo per la persona). Rieseguita `convert()`
-  una seconda volta dopo aver modificato la descrizione della persona: **nessun secondo
-  `Character` creato**, lo stesso record è stato aggiornato in place. Dati di test poi rimossi
-  dal DB.
-- Suite di test completa (64 test, 296 assertion) verde dopo la modifica — inclusi 2 test in
-  `CharacterWizardEditModeTest` riscritti perché il bottone "appearance" ora punta sempre a
-  "mondo" invece che direttamente ad approfondimento/summary.
-- Verificato via `git diff | grep -in "sofia|fernando"` (nessun match) che il codice di questa
-  fase resta completamente generico, coerente con il principio guida in cima a questo documento.
-- Chiude anche il bug noto di Pippo (nessuna foto di riferimento salvata oggi, causa di
-  un'incoerenza visiva già osservata) **solo quando l'asset verrà effettivamente caricato** — il
-  campo "foto opzionale" previsto dal piano originale non è stato incluso in questa fase: si
-  aggiungerà insieme al meccanismo di consenso della Fase 4, per non introdurre ora un upload
-  senza la base legale/di audit che lo accompagna. Fino ad allora una voce del mondo del
-  personaggio resta priva di reference visiva propria.
+**a) Fernando/"costruzione"** — **verificato in Fase 0 (29 luglio 2026, Claude Code locale)**: non una singola riga hardcoded ma una sovra-rappresentazione strutturale su più sezioni della bible reale di Sofia — sottosezione dedicata "Il costruttore della famiglia" (aneddoto delle assi di legno), ripresa in "Il loro rapporto", sezione umorismo con un running gag strutturato di varianti ("una mensola enorme", "un nuovo attrezzo in garage"...), voce esplicita in "bersagli preferiti" ("Fernando e i suoi progetti 'semplicissimi'"), e nel prompt renderizzato l'unica idea di story su Fernando tra 7 proposte era "Fernando che costruisce qualcosa di improbabile". Fernando aveva un solo aggancio narrativo scritto (le costruzioni), ripetuto 4-5 volte in punti diversi della bible — gli altri suoi tratti (cuoco/griglia, papà presente) esistevano ma non avevano mai un gancio comico/narrativo scritto da nessuna parte.
 
-## Fase 3 — Generazione immagine con più soggetti (da fare)
+**b) Sofia/"bug informatici"** — **verificato in Fase 0**: confermato empiricamente sugli 8 post reali pubblicati, tutti a tema tech, nessuno con altri membri del suo mondo come soggetto principale pur essendo tutti citati in bible. Cause concrete trovate:
+- Solo due storyline esistevano in tutto il DB per Sofia ("Progetto con Fernando", "Giornata con un cliente") — nessuna su famiglia/animali/salute. Il cervello editoriale considera esplicitamente le storyline aperte con più pressione come candidate: con solo queste due disponibili, il richiamo verso tech/Fernando era strutturale, non casuale.
+- `TimelineEntry.topic` non veniva mai passato dal flusso realmente attivo (`GenerateInstagramPostJob::handleEditorialBrainFlow()`) — solo dal flusso legacy (`CharacterLiveTick::rollLifeEvent()`). Tutte le entry dal 17/07 in poi avevano `topic` vuoto, la sezione "VITA RECENTE" del prompt mostrava sempre `topic: n/d`. Confermata l'ipotesi (b): l'istruzione anti-ripetizione esisteva solo come auto-giudizio del modello sul testo libero delle caption recenti, nessun tracciamento strutturato di categoria.
+- Nessuna regola di rotazione tematica nella bible stessa (letta per intero: solo tono/etica, mai varietà di argomento).
 
-- Nuovo metodo in `FalImageService` (es. `generateWithMultipleSubjects()`) con
-  `fal-ai/nano-banana-pro` (fino a 14 reference combinabili, coerenza fino a 5 persone, $0.15/
-  immagine — da confermare con una chiamata reale) invece di `ideogram/character` (limite noto:
-  usa solo la prima reference).
-- Si attiva quando la decisione del cervello editoriale nomina una relazione con
-  `related_character_id` valorizzato e almeno un asset associato.
-- Verifica richiesta: funzionamento tecnico reale (compone davvero entrambi i soggetti) E
-  controllo visivo di coerenza di stile con quanto già stabilito per il personaggio principale.
+**Fix di codice — implementato, generico, commit `3f8a19f` (29 luglio 2026)**: verificato zero riferimenti a Sofia/Fernando nel diff — la logica vale per qualunque personaggio, coerente col principio multi-tenant del progetto.
+- `TimelineEntry.topic` ora popolato anche da `GenerateInstagramPostJob::handleEditorialBrainFlow()` (prima restava sempre `null` in quel flusso).
+- Nuovo campo `topic` nello schema strutturato del cervello editoriale (categoria libera, non un elenco fisso).
+- `EditorialContextBuilder::buildTopicFrequency()`: conteggio deterministico degli ultimi 8 topic, nuova sezione "VARIETÀ DI ARGOMENTI" nel prompt con istruzione esplicita a variare se una categoria supera metà delle pubblicazioni recenti — stessa disciplina già consolidata nel progetto (calcolare in PHP, non sperare che il modello se ne accorga da solo).
+- Verificato con dati reali: la sezione si popola correttamente dai topic legacy esistenti. Non eseguito un test end-to-end con timestamp di produzione alterati (evitato deliberatamente) — il cambio resta comunque minimo e segue lo stesso pattern già collaudato degli altri campi.
 
-## Fase 4 — Asset caricati dall'utente (da fare, indipendente)
+**Dati specifici di Sofia/Fernando — nessun commit, vivono nel DB, non nel codice** (corretto che siano specifici: è la bible di quel personaggio, non codice condiviso):
+- Aggiunto un secondo aggancio comico a Fernando ("le grigliate epiche"), accanto all'unico esistente (i progetti "semplicissimi") — riusa un tratto già stabilito ma mai sfruttato nei bersagli comici.
+- Seminate due nuove storyline aperte per Sofia ("Le domande impossibili di Marta", "Pippo e la gallina di gomma") per competere con "Progetto con Fernando"/"Giornata con un cliente" nella pressione narrativa — verificato che compaiono correttamente nel prompt reale.
 
-- Nuovo campo `character_assets.source` (`ai_generated`/`user_uploaded`) — quando
-  `user_uploaded`, salta del tutto `FalImageService` e qualunque addebito crediti.
-- Flusso di consenso: checkbox esplicita e separata dai Termini di Servizio generali, testo
-  chiaro sui diritti dell'immagine, evento di consenso auditable (timestamp, utente, versione del
-  testo accettato) — non solo una spunta UI senza traccia lato server.
-- Il testo legale esatto va rivisto da un legale prima del lancio pubblico — qui si costruisce
-  solo il meccanismo tecnico e il punto dove quel testo andrà inserito.
+Suite 64/64 verde in ogni passaggio (Fase 0 fix + Fase 1).
+
+## 6. Raccomandazione — ordine di lavoro
+
+1. ~~Prima di scrivere codice: ispezionare in Claude Code locale la bible reale di Sofia e il prompt effettivamente renderizzato~~ — **fatto, 29 luglio 2026** (risultati sez. 5), più il fix di codice (`3f8a19f`) e i dati specifici di Sofia/Fernando applicati (sez. 5).
+2. ~~Formalizzare il collegamento visivo (`character_relationships.related_character_id`)~~ — **fatto, commit `9a7df76`, 29 luglio 2026** (sez. 1), verificato con un caso reale (Fernando come `Character` vero, dormiente sulla pipeline come previsto).
+3. **Poi**: generazione immagine multi-soggetto via `nano-banana-pro` — verificare con chiamate reali (costo, coerenza visiva con lo stile già stabilito) prima di collegarla alla pipeline principale.
+4. ~~Wizard/pannello per nominare/definire le comparse~~ — **fatto, commit `26b1522`, 29 luglio 2026** (sez. 2). Il campo "foto opzionale" è stato deliberatamente rimandato alla Fase 5 (consenso legale), non incluso in questa fase.
+5. **In parallelo, indipendente dal resto**: asset caricati dall'utente + flusso di consenso legale — non bloccato da nessuno dei punti sopra, ma non va lanciato pubblicamente senza revisione di un legale vero sul testo di consenso. Include ora anche il campo foto per le voci del "mondo" (rimandato qui dalla Fase 2).
+
+Punti 2-5 sono ragionevolmente indipendenti tra loro (stesso principio già usato per altre roadmap di questo progetto) — possono procedere in sessioni/commit separati senza problemi di dipendenza architetturale, coerente con la pratica già consolidata di isolare ogni feature nel proprio commit.
+
+## Fonti consultate
+
+- [Nano Banana Pro: State of the Art AI Image Editor — fal.ai](https://fal.ai/models/fal-ai/nano-banana-pro/edit)
+- [Vidu Reference-to-Image API — fal.ai](https://fal.ai/models/fal-ai/vidu/reference-to-image/api)
+- [Ideogram V3 Character API — fal.ai](https://fal.ai/models/fal-ai/ideogram/character/api)
+- [Trattamento di immagini fotografiche e riprese video alla luce del GDPR — Cyber Security 360](https://www.cybersecurity360.it/legal/privacy-dati-personali/trattamento-di-immagini-fotografiche-e-riprese-video-alla-luce-del-gdpr-vademecum-per-gli-operatori/)
+- [Diritto all'Immagine: Tutela e Risarcimento Danni — Difesa d'Autore](https://www.difesadautore.it/diritto-immagine/)

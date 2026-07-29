@@ -2,6 +2,7 @@
 namespace App\Jobs;
 use App\Models\Character;
 use App\Models\CharacterAsset;
+use App\Models\CharacterRelationship;
 use App\Models\Generation;
 use App\Models\LifeEvent;
 use App\Models\Post;
@@ -193,6 +194,7 @@ class GenerateInstagramPostJob implements ShouldQueue
             // immagine, solo rendering grafico da messaggi_conversazione (già validati da
             // EditorialBrainService::validate(), almeno 2). $reference resta null qui sotto,
             // stesso trattamento già scelto per "oggetto".
+            $secondaryReference = null;
             if ($isConversazione) {
                 $reference = null;
                 $seed = null;
@@ -212,7 +214,11 @@ class GenerateInstagramPostJob implements ShouldQueue
                     if (! $reference) {
                         throw new RuntimeException("Nessun asset di riferimento trovato per {$character->name}.");
                     }
-                    $imageResult = $fal->generate($result['decision']['prompt_immagine'], $negativePrompt, $reference);
+
+                    $secondaryReference = $this->resolveSecondaryReference($character, $result['decision']['personaggio_coinvolto_id'] ?? null, $referenceSelector);
+                    $imageResult = $secondaryReference
+                        ? $fal->generateWithMultipleSubjects($result['decision']['prompt_immagine'], $negativePrompt, $reference, $secondaryReference)
+                        : $fal->generate($result['decision']['prompt_immagine'], $negativePrompt, $reference);
                 }
                 $seed = $imageResult['seed'];
                 $imageBinary = $imageResult['binary'];
@@ -269,6 +275,7 @@ class GenerateInstagramPostJob implements ShouldQueue
                 'media_paths' => $mediaPaths,
                 'seed' => $seed, // null per "conversazione": nessuna generazione Fal.ai in quel ramo
                 'reference_asset_id' => $reference?->id, // null per "oggetto"/"conversazione"/"tema_caldo": nessuna reference selezionata in quei rami
+                'secondary_reference_asset_id' => $secondaryReference?->id, // valorizzato solo quando la scena ritrae una relazione del mondo narrativo (Fase 3)
                 'timeline_entry_id' => $timelineEntry->id,
             ])]);
         } catch (Throwable $e) {
@@ -277,6 +284,34 @@ class GenerateInstagramPostJob implements ShouldQueue
         }
 
         return $result['post']->fresh();
+    }
+
+    /**
+     * Fase 3 mondo narrativo: risolve l'id di relazione scelto dal cervello editoriale
+     * (personaggio_coinvolto_id) in un CharacterAsset reale da passare a
+     * FalImageService::generateWithMultipleSubjects(). Non fidarsi ciecamente della decisione
+     * del modello (stesso principio già applicato a storyline_id in EditorialCycleService):
+     * se l'id non appartiene a questo personaggio, non ha un related_character_id valorizzato,
+     * o quella persona/animale non ha ancora nessun asset caricato, si degrada silenziosamente
+     * al post a soggetto singolo — mai un errore che blocca la pubblicazione per questo.
+     */
+    private function resolveSecondaryReference(Character $character, ?int $relationshipId, ReferenceImageSelector $referenceSelector): ?CharacterAsset
+    {
+        if (! $relationshipId) {
+            return null;
+        }
+
+        $relationship = CharacterRelationship::where('character_id', $character->id)->find($relationshipId);
+        if (! $relationship || ! $relationship->related_character_id) {
+            return null;
+        }
+
+        $relatedCharacter = Character::find($relationship->related_character_id);
+        if (! $relatedCharacter) {
+            return null;
+        }
+
+        return $referenceSelector->pick($relatedCharacter);
     }
 
     private function buildCarouselSlides(ImageTextOverlayService $overlay, Character $character, string $baseImageBinary, array $slideTexts): array

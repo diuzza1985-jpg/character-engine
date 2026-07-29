@@ -104,4 +104,58 @@ class FalImageService
             'source_url' => $imageUrl,
         ];
     }
+
+    /**
+     * Fase 3 mondo narrativo: genera una scena in cui il personaggio principale compare insieme a
+     * una persona/animale del suo mondo (related_character_id valorizzato + asset disponibile).
+     * generate() sopra usa fal-ai/ideogram/character, che usa solo la PRIMA reference passata —
+     * inadatto qui, servono entrambi i soggetti riconoscibili. fal-ai/nano-banana-pro/edit accetta
+     * più reference in image_urls e compone davvero più soggetti: verificato con una chiamata
+     * reale (due reference distinte → un'immagine con entrambe le persone visibili).
+     *
+     * A differenza di generate(), questo endpoint non espone un parametro negative_prompt
+     * separato (schema reale verificato via openapi.json della queue fal): le esclusioni vanno
+     * scritte nel prompt stesso.
+     */
+    public function generateWithMultipleSubjects(string $prompt, string $negativePrompt, CharacterAsset $mainReference, CharacterAsset $secondaryReference): array
+    {
+        $payload = [
+            'prompt' => "{$prompt}\n\nEvita assolutamente: {$negativePrompt}.",
+            'image_urls' => [$this->toDataUri($mainReference), $this->toDataUri($secondaryReference)],
+            'num_images' => 1,
+            'seed' => random_int(1, 999999999),
+        ];
+
+        Log::info('fal.ai request (multi-subject)', [
+            'prompt' => $prompt,
+            'prompt_length' => strlen($prompt),
+            'negative_prompt' => $negativePrompt,
+            'other_params' => collect($payload)->except(['prompt', 'image_urls'])->all(),
+        ]);
+
+        $response = Http::withHeaders([
+                'Authorization' => 'Key ' . config('services.fal.key'),
+            ])
+            ->timeout(180)
+            ->post('https://fal.run/fal-ai/nano-banana-pro/edit', $payload)
+            ->throw()
+            ->json();
+
+        Log::info('fal.ai response (multi-subject)', $response);
+
+        $imageUrl = $response['images'][0]['url'] ?? null;
+        if (! $imageUrl) {
+            throw new RuntimeException('fal.ai (nano-banana-pro) non ha restituito un URL immagine. Risposta: ' . json_encode($response));
+        }
+
+        $imageBinary = Http::timeout(60)->get($imageUrl)->throw()->body();
+
+        return [
+            // L'endpoint non restituisce mai 'seed' in risposta (verificato con una chiamata
+            // reale): il fallback al seed inviato è sempre il caso effettivo, non solo teorico.
+            'binary' => $imageBinary,
+            'seed' => $response['seed'] ?? $payload['seed'],
+            'source_url' => $imageUrl,
+        ];
+    }
 }

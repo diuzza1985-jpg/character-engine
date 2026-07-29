@@ -13,7 +13,7 @@ use RuntimeException;
  */
 class EditorialBrainService
 {
-    private const REQUIRED_FIELDS = ['decisione', 'motivazione', 'formato', 'idea', 'topic', 'testo', 'testo_overlay', 'prompt_immagine', 'carousel_slides', 'messaggi_chat', 'messaggi_conversazione', 'storyline_da_aggiornare', 'used_news'];
+    private const REQUIRED_FIELDS = ['decisione', 'motivazione', 'formato', 'idea', 'topic', 'testo', 'testo_overlay', 'prompt_immagine', 'carousel_slides', 'messaggi_chat', 'messaggi_conversazione', 'storyline_da_aggiornare', 'personaggio_coinvolto_id', 'used_news'];
 
     private function buildResponseSchema(bool $forcePublish, bool $diarioDisponibile = true, bool $temaCaldoDisponibile = false): array
     {
@@ -68,6 +68,11 @@ class EditorialBrainService
                         'note' => ['type' => 'string'],
                     ],
                 ],
+                // Fase 3 mondo narrativo: id di una relazione tra quelle elencate in RELAZIONI
+                // RILEVANTI (mai un id inventato), solo se marcata "può comparire in foto" —
+                // valorizzato SOLO quando la scena di oggi ritrae fisicamente quella persona/
+                // animale insieme al personaggio principale nella stessa immagine.
+                'personaggio_coinvolto_id' => ['type' => ['integer', 'null']],
                 'used_news' => ['type' => 'boolean'],
             ],
         ];
@@ -232,6 +237,14 @@ class EditorialBrainService
                 throw new RuntimeException('Formato tema_caldo richiede prompt_immagine non vuoto.');
             }
         }
+        // Fase 3 mondo narrativo: "oggetto"/"tema_caldo"/"conversazione" non passano mai da un
+        // $reference del personaggio principale in GenerateInstagramPostJob (nessuna foto di lui/
+        // lei, nel caso di "conversazione" nessuna foto affatto) — un personaggio_coinvolto_id
+        // valorizzato lì verrebbe silenziosamente ignorato a valle. Stesso principio delle guardie
+        // sopra: meglio fallire qui che ignorarlo silenziosamente.
+        if ($data['decisione'] === 'pubblica' && $data['personaggio_coinvolto_id'] !== null && in_array($data['formato'], ['oggetto', 'tema_caldo', 'conversazione'], true)) {
+            throw new RuntimeException("personaggio_coinvolto_id non è compatibile con il formato \"{$data['formato']}\": nessuna foto del personaggio principale viene generata per questo formato.");
+        }
     }
 
    private function buildPrompt(
@@ -310,9 +323,10 @@ Questo è un conteggio vero sulle categorie (topic) delle ultime pubblicazioni, 
     - scegli il formato più adatto all'idea, non il più comodo. Opzioni disponibili oggi: {$formatiDisponibili}
     - il testo/caption deve sembrare scritto da una persona reale, mai da un assistente AI, coerente con documentazione e stato interno
     - puoi proporre l'aggiornamento di UNA storyline con storyline_da_aggiornare, ma solo se il contenuto di oggi la fa avanzare davvero (non per il solo fatto di nominarla): storyline_id deve essere uno di quelli elencati sopra, mai un ID inventato; nuovo_stato è uno tra dormiente/aperta/in_pausa/risolta/abbandonata ("risolta" = chiusura con un finale soddisfacente, "abbandonata" = lasciata cadere senza un vero finale, "in_pausa" = si ferma ma resta aperta); se non stai aggiornando nessuna storyline, storyline_da_aggiornare deve essere null
+    - personaggio_coinvolto_id: valorizzalo con l'id di una relazione elencata sopra in RELAZIONI RILEVANTI SOLO se marcata "può comparire in foto" E la scena di oggi la ritrae davvero fisicamente insieme a {$character->name} nella stessa immagine (non basta che la nomini nel testo) — un'occasione rara, non il default; per qualunque altra situazione (relazione non marcata così, o semplicemente non prevista nella foto di oggi) deve essere null. Mai un id inventato o di una relazione non marcata "può comparire in foto".
     - prompt_immagine descrive la scena per un futuro generatore di immagini (tu non generi l'immagine): in inglese, concreto (soggetto, ambientazione, luce, inquadratura), coerente col profilo visivo sopra, senza testo da sovrapporre nell'immagine — anche per un carousel è UNA sola foto: le slide condividono la stessa immagine, con testo diverso sovrapposto sopra
     - prompt_immagine deve essere coerente con la stagione indicata sopra in OGGI (oggi è {$oggi['stagione']}): non vestire {$character->name} con capi non adatti alla stagione anche se il profilo visivo li descrive in generale — quel profilo descrive lo stile abituale del personaggio, non un obbligo da rispettare in ogni condizione climatica
-    - prompt_immagine deve raffigurare SOLO {$character->name} come persona (o, per il formato "oggetto", nessuna persona). Anche se testo/idea nominano altre persone o animali (es. una persona con cui interagisce, o un animale domestico), NON descriverli visivamente in prompt_immagine: la loro presenza resta solo narrativa, nel testo — oggi non esiste un modo per garantire che il loro aspetto resti coerente da un post all'altro, quindi non li disegniamo affatto finché quel sistema non esiste
+    - prompt_immagine deve raffigurare SOLO {$character->name} come persona (o, per il formato "oggetto", nessuna persona) — SALVO il caso in cui valorizzi personaggio_coinvolto_id (vedi sotto): solo allora prompt_immagine può descrivere anche quella seconda persona/animale insieme a lui/lei nella scena. In ogni altro caso, anche se testo/idea nominano altre persone o animali (es. una persona con cui interagisce, o un animale domestico), NON descriverli visivamente in prompt_immagine: la loro presenza resta solo narrativa, nel testo — per le relazioni non marcate "può comparire in foto" oggi non esiste un modo per garantire che il loro aspetto resti coerente da un post all'altro, quindi non le disegniamo affatto
     - se scegli il formato "post": testo_overlay contiene UNA sola frase breve (8-10 parole), in italiano, pensata per essere leggibile sovrapposta alla foto — stesso principio delle frasi del carousel qui sotto ma una sola invece di 3-5, senza hashtag o emoji dentro la frase; testo resta la caption normale sotto il post, distinta da testo_overlay — non ripeterci lo stesso contenuto. Per qualunque formato diverso da "post", testo_overlay deve essere null
     - se scegli il formato "carousel": carousel_slides contiene da 3 a 5 frasi brevi (massimo 8-10 parole ciascuna), in italiano, pensate per essere lette sovrapposte alla foto come in un carosello "quote card" — devono avere un filo narrativo comune legato all'idea di oggi, essere leggibili a colpo d'occhio, senza hashtag o emoji dentro il testo della frase; testo resta la caption normale sotto il post (come per qualunque altro formato), distinta dalle frasi sovrapposte — non ripetere lì il contenuto delle slide. Per qualunque formato diverso da "carousel", carousel_slides deve essere null
     - se scegli il formato "oggetto": prompt_immagine descrive SOLO un oggetto o un dettaglio della scena, esplicitamente SENZA persone nell'inquadratura — deve essere qualcosa di specificamente legato a {$character->name}, dedotto dalla bible e dal profilo visivo sopra (non un oggetto generico che andrebbe bene per qualsiasi personaggio: guarda cosa emerge davvero dalla sua documentazione, dalla sua vita recente, dal suo mondo — può essere qualunque cosa, dipende solo da chi è lui/lei); testo (la caption) resta breve, quasi assente, lascia parlare l'immagine invece di spiegarla
@@ -422,7 +436,8 @@ TXT;
         foreach ($relazioni as $r) {
             $tipo = $r['tipo'] ?? 'non specificato';
             $ultima = $r['ultima_interazione'] ?? 'mai';
-            $lines[] = "- {$r['nome']} (tipo: {$tipo}, sentiment {$r['sentiment']}, ultima interazione: {$ultima})";
+            $foto = ($r['puo_comparire_in_foto'] ?? false) ? 'può comparire in foto' : 'solo narrativa, non raffigurabile';
+            $lines[] = "- id {$r['id']} {$r['nome']} (tipo: {$tipo}, sentiment {$r['sentiment']}, ultima interazione: {$ultima}, {$foto})";
         }
 
         return implode("\n", $lines);

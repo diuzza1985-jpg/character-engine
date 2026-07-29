@@ -139,10 +139,16 @@ class EditorialContextBuilder
             ->take(self::MAX_RELATIONSHIPS)
             ->get()
             ->map(fn (CharacterRelationship $r) => [
+                'id' => $r->id,
                 'nome' => $r->name,
                 'tipo' => $r->type,
                 'sentiment' => round($r->sentiment, 2),
                 'ultima_interazione' => $r->last_interaction_at?->toDateString(),
+                // Fase 3 mondo narrativo: solo le relazioni collegate a un Character reale
+                // (related_character_id, Fase 1) sono candidabili per comparire fisicamente
+                // insieme al personaggio principale nella stessa immagine — il resto resta
+                // puramente narrativo, come sempre.
+                'puo_comparire_in_foto' => (bool) $r->related_character_id,
             ])
             ->all();
     }

@@ -249,9 +249,15 @@ class GenerateInstagramPostJob implements ShouldQueue
                 ? $this->buildCarouselSlides($overlay, $character, $imageResult['binary'], $result['decision']['carousel_slides'])
                 : [$imagePath];
 
+            // 'topic' era rimasto sempre null qui (bug reale, sez. Fase 0 mondo-narrativo): solo
+            // il flusso legacy lo popolava da LifeEvent.scene_hint['topic']. Senza, la sezione
+            // "VARIETÀ DI ARGOMENTI" sotto (EditorialBrainService) non ha mai avuto dati — nessun
+            // segnale strutturato di quanto un argomento si stia ripetendo, solo l'auto-giudizio
+            // del modello sul testo libero delle caption recenti.
             $timelineEntry = TimelineEntry::create([
                 'character_id' => $character->id,
                 'storyline_id' => $result['editorial_decision']->storyline_id,
+                'topic' => $result['decision']['topic'] ?? null,
                 'title' => $result['decision']['idea'],
                 'memorability' => $result['editorial_decision']->storyline?->importance,
             ]);

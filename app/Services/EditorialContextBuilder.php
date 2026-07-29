@@ -18,6 +18,7 @@ class EditorialContextBuilder
     private const MAX_RECENT_POSTS = 12;
     private const MAX_RECENT_TIMELINE = 15;
     private const MAX_MEMORIES = 3;
+    private const MAX_TOPIC_LOOKBACK = 8;
 
     public function __construct(
         private readonly MemoryRecallSelector $memoryRecallSelector,
@@ -43,6 +44,7 @@ class EditorialContextBuilder
             'storyline_rilevanti' => $this->buildRelevantStorylines($character),
             'relazioni_rilevanti' => $this->buildRelevantRelationships($character),
             'contenuti_recenti' => $this->buildRecentPosts($character),
+            'varieta_argomenti' => $this->buildTopicFrequency($character),
             'vita_recente' => $this->buildRecentTimeline($character),
             'possibili_ricordi' => $this->buildRelevantMemories($character),
         ];
@@ -163,6 +165,29 @@ class EditorialContextBuilder
                 'stato' => $p->status,
                 'caption' => $p->caption ?: null,
             ])
+            ->all();
+    }
+
+    /**
+     * Conteggio deterministico "quante delle ultime N pubblicazioni erano su questo topic"
+     * (Fase 0 mondo-narrativo): sostituisce il solo auto-giudizio del modello sul testo libero
+     * delle caption con un dato reale calcolato qui. Generico per costruzione — legge solo
+     * TimelineEntry.topic di QUESTO personaggio, qualunque valore contenga (nessuna categoria
+     * fissa nel codice): funziona identico per un personaggio che non abbia mai avuto un topic
+     * in comune con nessun altro.
+     *
+     * @return array<string, int> topic => conteggio, ordinato dal più frequente
+     */
+    private function buildTopicFrequency(Character $character): array
+    {
+        return $character->timelineEntries()
+            ->whereNotNull('topic')
+            ->where('topic', '!=', '')
+            ->latest('created_at')
+            ->take(self::MAX_TOPIC_LOOKBACK)
+            ->pluck('topic')
+            ->countBy()
+            ->sortDesc()
             ->all();
     }
 

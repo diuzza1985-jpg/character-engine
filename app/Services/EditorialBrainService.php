@@ -13,7 +13,7 @@ use RuntimeException;
  */
 class EditorialBrainService
 {
-    private const REQUIRED_FIELDS = ['decisione', 'motivazione', 'formato', 'idea', 'testo', 'testo_overlay', 'prompt_immagine', 'carousel_slides', 'messaggi_chat', 'messaggi_conversazione', 'storyline_da_aggiornare', 'used_news'];
+    private const REQUIRED_FIELDS = ['decisione', 'motivazione', 'formato', 'idea', 'topic', 'testo', 'testo_overlay', 'prompt_immagine', 'carousel_slides', 'messaggi_chat', 'messaggi_conversazione', 'storyline_da_aggiornare', 'used_news'];
 
     private function buildResponseSchema(bool $forcePublish, bool $diarioDisponibile = true, bool $temaCaldoDisponibile = false): array
     {
@@ -32,6 +32,12 @@ class EditorialBrainService
                     'enum' => $this->formatoEnum($diarioDisponibile, $temaCaldoDisponibile),
                 ],
                 'idea' => ['type' => 'string'],
+                // Categoria libera e generica (non un elenco fisso legato a un personaggio in
+                // particolare — vale per qualunque personaggio, qualunque bible): serve solo a
+                // tracciare nel tempo la varietà reale degli argomenti (sez. "VARIETÀ DI
+                // ARGOMENTI" sotto), popolando TimelineEntry.topic che prima restava sempre null
+                // in questo flusso.
+                'topic' => ['type' => ['string', 'null']],
                 'testo' => ['type' => ['string', 'null']],
                 'testo_overlay' => ['type' => ['string', 'null']],
                 'prompt_immagine' => ['type' => ['string', 'null']],
@@ -245,6 +251,7 @@ class EditorialBrainService
         $storylines = $this->formatStorylines($context['storyline_rilevanti']);
         $relazioni = $this->formatRelazioni($context['relazioni_rilevanti']);
         $contenutiRecenti = $this->formatContenutiRecenti($context['contenuti_recenti']);
+        $varietaArgomenti = $this->formatVarietaArgomenti($context['varieta_argomenti'] ?? []);
         $vitaRecente = $this->formatVitaRecente($context['vita_recente']);
         $istruzioniSpecifiche = ($instructions !== null && trim($instructions) !== '')
             ? "\n" . $this->buildInstructionsParagraph($instructions) . "\n"
@@ -289,6 +296,10 @@ Questi numeri non escono mai all'esterno così come sono. Possono trasparire sol
 Prima di scegliere una battuta o un bersaglio comico per oggi, controlla se hai già scherzato su un argomento simile in uno di questi post recenti — se sì, scegline un altro invece di tornare sempre sul più ovvio. Vale anche in generale: non ripetere formato/argomento appena pubblicati.
 {$contenutiRecenti}
 
+=== VARIETÀ DI ARGOMENTI NELLE ULTIME PUBBLICAZIONI (conteggio reale, non un'impressione) ===
+{$varietaArgomenti}
+Questo è un conteggio vero sulle categorie (topic) delle ultime pubblicazioni, non un suggerimento vago: se una categoria compare già in almeno metà delle pubblicazioni sopra, oggi scegli consapevolmente qualcos'altro — anche se ti verrebbe naturale tornarci, la varietà reale conta più della singola idea più comoda. Se il conteggio è vuoto o troppo scarso per dire qualcosa, ignora questa sezione.
+
 === VITA RECENTE (eventi già vissuti, pubblicati o no) ===
 {$vitaRecente}
 {$temaCaldoSezione}{$istruzioniSpecifiche}{$regolaSilenzio}
@@ -310,6 +321,7 @@ Prima di scegliere una battuta o un bersaglio comico per oggi, controlla se hai 
     - se scegli il formato "diario": testo è un pensiero breve in prima persona, tono riflessivo e privato, frasi semplici, NESSUN hashtag e NESSUNA call-to-action — non è un contenuto promozionale, è più vicino a una pagina scritta per sé che qualcuno ha visto per caso; prompt_immagine descrive uno sfondo quieto coerente con lo stato interno di oggi, non serve un primo piano del personaggio
     - se scegli il formato "tema_caldo": reagisci al TEMA CALDO DI OGGI indicato sopra, come farebbe {$character->name} in prima persona sulla sua nicchia — non limitarti a riassumerlo, portaci il suo punto di vista genuino. prompt_immagine descrive un'immagine legata AL TEMA, non a {$character->name}: di default nessuna persona nell'inquadratura (stesso principio del formato "oggetto" sopra), a meno che il tema stesso non sia intrinsecamente astratto e un dettaglio concreto renda l'idea meglio di una persona; used_news deve essere true (è l'unico formato per cui succede)
     - used_news è true solo per il formato "tema_caldo" (unico caso in cui il contenuto di oggi nasce da una fonte esterna, non dal personaggio stesso); per qualunque altro formato resta sempre false
+    - topic è una categoria libera e breve (una o due parole, es. "lavoro", "famiglia", "animali", "salute", "casa", "hobby", "tecnologia", "attualità" — o qualunque altra etichetta più adatta a cosa hai deciso oggi) che descrive l'argomento di fondo dell'idea di oggi: non fa parte del contenuto pubblico, serve solo a tracciare la varietà nel tempo (vedi sezione VARIETÀ DI ARGOMENTI sopra). Se decidi non_pubblicare, lascia topic a null
 
 Restituisci ESCLUSIVAMENTE il JSON conforme allo schema fornito. Non usare markdown, non usare \`\`\`json, non aggiungere testo prima o dopo.
 TXT;
@@ -426,6 +438,27 @@ TXT;
         foreach ($contenuti as $c) {
             $caption = $c['caption'] ?? '(senza testo)';
             $lines[] = "- {$c['data']} | {$c['formato']} | {$c['stato']} | {$caption}";
+        }
+
+        return implode("\n", $lines);
+    }
+
+    /**
+     * @param array<string, int> $frequenze topic => quante volte compare nelle ultime N
+     *   pubblicazioni (EditorialContextBuilder::buildTopicFrequency, generico per qualunque
+     *   personaggio — nessuna categoria hardcoded qui, solo qualunque cosa il cervello editoriale
+     *   abbia scritto lui stesso in "topic" nelle scorse decisioni).
+     */
+    private function formatVarietaArgomenti(array $frequenze): string
+    {
+        if (empty($frequenze)) {
+            return 'Non ci sono ancora abbastanza dati per calcolare la varietà (poche pubblicazioni recenti con topic tracciato).';
+        }
+
+        $totale = array_sum($frequenze);
+        $lines = [];
+        foreach ($frequenze as $topic => $count) {
+            $lines[] = "- {$topic}: {$count}/{$totale} pubblicazioni recenti";
         }
 
         return implode("\n", $lines);

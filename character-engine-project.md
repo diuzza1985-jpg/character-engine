@@ -611,7 +611,15 @@ Piano completo in `character-engine-comparse-mondo-narrativo.md` (11.24 ne ripre
 - Verificato con chiamate reali dirette all'endpoint e poi con una chiamata reale al metodo vero e proprio: compone davvero due soggetti distinti nella stessa immagine. Non verificabile ancora la fedeltà visiva a un vero Fernando/Pippo (nessun asset reale esiste per loro oggi) — solo la meccanica tecnica, con un asset di test temporaneo poi rimosso.
 - Suite 64/64 verde, nessuna stringa Sofia/Fernando nel diff di codice.
 
-**Resta da fare**: asset caricati dall'utente + consenso legale (Fase 5, ora include anche la foto delle voci del mondo del personaggio e la verifica visiva reale di Fernando/Pippo in scena).
+**Fase 4 — asset caricati dall'utente + consenso auditabile — fatta, commit `81d8c99` (29 luglio 2026)**:
+- Nuovo tab "Assets & Immagini" in `CharacterDetail` (prima placeholder bloccato), generico per qualunque `Character` del tenant — chiude anche il campo foto per le voci del "mondo" rimandato dalla Fase 2, senza toccare il wizard.
+- `character_assets.source` (`ai_generated`/`user_uploaded`, default `ai_generated` sulle righe esistenti — verificato che rappresentano tutte il volto AI del personaggio, nessuna richiedeva consenso a posteriori).
+- **Verificato nel codice reale prima di scrivere qualunque guardia**: la logica di addebito crediti per-generazione non esiste ancora da nessuna parte (resta un punto della roadmap, vedi sez. 12 punto 3) — nessuna guardia "salta l'addebito" costruita su un sistema che non c'è; quando quella logica arriverà, condizionarla su `source` sarà immediato. Un upload diretto non passa comunque mai da `FalImageService` per natura.
+- Consenso: checkbox separata dai Termini di Servizio, validata lato server (`accepted`), testo in `App\Support\AssetUploadConsentText` marcato esplicitamente come bozza non revisionata legalmente. Evento auditabile in una nuova tabella `asset_upload_consents` (utente, timestamp, versione esatta del testo).
+- 5 nuovi test Feature reali (`CharacterAssetUploadTest`) + verifica del rendering reale del tab via `Livewire::test()`. Suite 69/69 verde.
+- **Nota di sicurezza residua, preesistente, non introdotta qui**: le foto servite da `Storage::disk('local')->url()` passano dalla route `storage/{path}` senza autenticazione (comportamento condiviso con tutti gli asset esistenti) — path non banalmente indovinabili ma non protetti da un controllo di accesso reale. Da segnalare alla revisione legale/di sicurezza prima del lancio pubblico.
+
+**Resta da fare prima del lancio pubblico di questa funzione**: revisione legale vera del testo di consenso (oggi una bozza), eventuale controllo di accesso reale sulle foto servite.
 
 ## 12. Prossimi passi possibili
 

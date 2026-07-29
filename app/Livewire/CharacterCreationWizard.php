@@ -4,6 +4,7 @@ namespace App\Livewire;
 
 use App\Models\Character;
 use App\Models\CharacterDraft;
+use App\Models\CharacterKinship;
 use App\Services\ConvertCharacterDraftToCharacter;
 use Illuminate\Support\Str;
 use Livewire\Component;
@@ -74,6 +75,14 @@ class CharacterCreationWizard extends Component
     public ?string $mouthDetail = null;
     public ?string $distinguishingDetail = null;
 
+    // Il mondo del personaggio (documento mondo-narrativo, Fase 2): persone/animali che
+    // diventano Character reali in status draft alla conversione — diverso da keyRelationships
+    // sotto, che resta sempre solo narrativo. Ogni item: {tipo: persona|animale, nome,
+    // relazione?, descrizione?, specie?, razza?, aspetto?, character_id?}. Non gated su
+    // auth()->check() come Approfondimento: è nel giro core, come "aspetto" — la creazione
+    // reale dei Character avviene comunque solo alla conversione (post-registrazione).
+    public array $worldCharacters = [];
+
     // Approfondimento (solo utenti autenticati — spec tecnica del questionario, mai in scope
     // per il wizard anonimo)
     public array $dietaryHabits = [];
@@ -92,7 +101,7 @@ class CharacterCreationWizard extends Component
         // non parte del primo giro (coerente con lo spec originale, "sbloccabile dopo
         // l'attivazione del personaggio", corretto qui dopo revisione: prima compariva anche
         // in creazione se autenticati, non era quello che si voleva).
-        $steps = ['intro', 'why', 'identity', 'personality', 'voice', 'humor', 'appearance'];
+        $steps = ['intro', 'why', 'identity', 'personality', 'voice', 'humor', 'appearance', 'mondo'];
         if ($this->editingCharacter) {
             $steps[] = 'approfondimento';
         }
@@ -198,6 +207,7 @@ class CharacterCreationWizard extends Component
         $this->fears = $draft->fears ?? [];
         $this->backstory = $draft->backstory;
         $this->keyRelationships = $draft->key_relationships ?? [];
+        $this->worldCharacters = $draft->world_characters ?? [];
         $this->typicalPhrases = $draft->typical_phrases ?? [];
         $this->hyperSpecificDetails = $draft->hyper_specific_details ?? [];
     }
@@ -224,6 +234,7 @@ class CharacterCreationWizard extends Component
             'voice' => $this->applyVoice($payload),
             'humor' => $this->applyHumor($payload),
             'appearance' => $this->applyAppearance($payload),
+            'mondo' => $this->applyMondo($payload),
             'approfondimento' => $this->applyApprofondimento($payload),
             default => null,
         };
@@ -341,6 +352,29 @@ class CharacterCreationWizard extends Component
     }
 
     /**
+     * Il mondo del personaggio (documento mondo-narrativo, Fase 2): elenco facoltativo (nessuna
+     * voce è obbligatoria), ma ogni voce aggiunta deve avere i campi minimi per il proprio tipo —
+     * altrimenti ConvertCharacterDraftToCharacter non saprebbe che Character creare.
+     */
+    private function applyMondo(array $payload): void
+    {
+        $this->worldCharacters = $payload['worldCharacters'] ?? [];
+
+        $this->validate([
+            'worldCharacters' => ['array'],
+            'worldCharacters.*.tipo' => ['required', 'in:persona,animale'],
+            'worldCharacters.*.nome' => ['required', 'string', 'max:255'],
+            'worldCharacters.*.relazione' => ['nullable', 'required_if:worldCharacters.*.tipo,persona', 'in:' . implode(',', CharacterKinship::RELATIONSHIP_TYPES)],
+            'worldCharacters.*.specie' => ['nullable', 'required_if:worldCharacters.*.tipo,animale', 'string', 'max:255'],
+        ], [], [
+            'worldCharacters.*.tipo' => 'tipo',
+            'worldCharacters.*.nome' => 'nome',
+            'worldCharacters.*.relazione' => 'tipo di relazione',
+            'worldCharacters.*.specie' => 'specie',
+        ]);
+    }
+
+    /**
      * Tutto facoltativo (spec: "puoi farlo con calma dopo", non blocca l'attivazione del
      * personaggio) — nessuna validazione richiesta.
      */
@@ -437,6 +471,7 @@ class CharacterCreationWizard extends Component
             'fears' => $this->fears,
             'backstory' => $this->backstory,
             'key_relationships' => $this->keyRelationships,
+            'world_characters' => $this->worldCharacters,
             'typical_phrases' => $this->typicalPhrases,
             'hyper_specific_details' => $this->hyperSpecificDetails,
             'expires_at' => now()->addDays(30),

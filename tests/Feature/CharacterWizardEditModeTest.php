@@ -34,13 +34,17 @@ class CharacterWizardEditModeTest extends TestCase
         // personaggio già salvato, mai per la creazione — nemmeno se già loggati. Verifica il
         // markup renderizzato (la destinazione reale del bottone "Avanti"), non solo che
         // nextStep() accetti comunque una chiamata diretta a 'approfondimento'.
+        // "appearance" ora punta sempre a "mondo" (nuovo step, mai gated su edit-mode): la
+        // biforcazione approfondimento/summary si è spostata sul bottone di "mondo".
         $tenant = Tenant::create(['name' => 'Approf Test', 'email' => 'approf-test@example.com', 'status' => 'trial']);
         $user = User::factory()->create(['tenant_id' => $tenant->id, 'role' => 'owner']);
 
         $component = Livewire::actingAs($user)->test(CharacterCreationWizard::class)->set('step', 'appearance');
+        $component->assertSeeHtml("nextStep('appearance', 'mondo'");
 
-        $component->assertDontSeeHtml("nextStep('appearance', 'approfondimento'");
-        $component->assertSeeHtml("nextStep('appearance', 'summary'");
+        $component->set('step', 'mondo');
+        $component->assertDontSeeHtml("nextStep('mondo', 'approfondimento'");
+        $component->assertSeeHtml("nextStep('mondo', 'summary'");
     }
 
     public function test_approfondimento_step_is_reachable_only_in_edit_mode(): void
@@ -51,11 +55,11 @@ class CharacterWizardEditModeTest extends TestCase
         CharacterDraft::create(['session_token' => 'approf-edit-' . uniqid(), 'tenant_id' => $tenant->id, 'character_id' => $character->id, 'name' => 'Da Approfondire', 'goal' => 'Educare', 'niche' => ['Salute'], 'status' => 'convertito']);
 
         $component = Livewire::actingAs($user)->test(CharacterCreationWizard::class, ['character' => $character])
-            ->set('step', 'appearance');
+            ->set('step', 'mondo');
 
-        $component->assertSeeHtml("nextStep('appearance', 'approfondimento'");
+        $component->assertSeeHtml("nextStep('mondo', 'approfondimento'");
 
-        $component->call('nextStep', 'appearance', 'approfondimento', ['ageRange' => '26-35', 'presentation' => 'Femminile', 'styleArchetype' => 'Boho', 'hairLength' => 'Medi'])
+        $component->call('nextStep', 'mondo', 'approfondimento', ['worldCharacters' => []])
             ->assertSet('step', 'approfondimento');
     }
 

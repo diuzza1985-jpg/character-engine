@@ -20,7 +20,7 @@ class CharacterDraft extends Model
         'age_range', 'presentation', 'style_archetype', 'hair_color', 'hair_length', 'hair_style',
         'eye_color', 'body_type', 'nose_detail', 'mouth_detail', 'distinguishing_detail',
         'dietary_habits', 'hobbies', 'life_goals', 'fears', 'backstory',
-        'key_relationships', 'typical_phrases', 'hyper_specific_details',
+        'key_relationships', 'typical_phrases', 'hyper_specific_details', 'world_characters',
         'status', 'expires_at',
     ];
 
@@ -43,6 +43,7 @@ class CharacterDraft extends Model
             'hobbies' => 'array',
             'fears' => 'array',
             'key_relationships' => 'array',
+            'world_characters' => 'array',
             'typical_phrases' => 'array',
             'hyper_specific_details' => 'array',
             'expires_at' => 'datetime',

@@ -6,6 +6,7 @@ use App\Models\Character;
 use App\Models\CharacterBibleSection;
 use App\Models\CharacterDraft;
 use App\Models\CharacterEditorialSettings;
+use App\Models\CharacterKinship;
 use App\Models\CharacterRelationship;
 use App\Models\CharacterVisualProfile;
 use Illuminate\Support\Facades\Http;
@@ -94,6 +95,7 @@ class ConvertCharacterDraftToCharacter
         }
 
         $this->syncKeyRelationships($character, $draft);
+        $this->syncWorldCharacters($character, $draft, $tenantId);
 
         $draft->update(['status' => 'convertito', 'tenant_id' => $tenantId, 'character_id' => $character->id]);
 
@@ -117,6 +119,89 @@ class ConvertCharacterDraftToCharacter
                 ['character_id' => $character->id, 'name' => $nome],
                 ['type' => $relazione['relazione'] ?? null, 'notes' => $relazione['tratto'] ?? null]
             );
+        }
+    }
+
+    /**
+     * "Il mondo del personaggio" (documento mondo-narrativo, Fase 2): a differenza di
+     * syncKeyRelationships() sopra (puramente narrativo), ogni voce qui diventa un Character
+     * reale in status draft — stesso meccanismo di creazione del personaggio principale, senza
+     * il passo di attivazione/registrazione. Nessuna colonna di "ruolo": è già dormiente di suo
+     * su tutta la pipeline (verificato in Fase 0/1) perché status=draft e senza social_account.
+     *
+     * Scrive anche una CharacterKinship (oltre alla CharacterRelationship narrativa) solo per le
+     * persone con un tipo di relazione valido, così compare anche nella tab "Parentele" con
+     * etichetta inversa — nessuna relazione di parentela sensata per un animale.
+     *
+     * Ogni item porta un character_id opzionale, valorizzato qui dopo la prima conversione: un
+     * resave successivo del questionario aggiorna lo stesso Character invece di duplicarlo
+     * (stesso principio update-in-place di convert() sopra).
+     */
+    private function syncWorldCharacters(Character $character, CharacterDraft $draft, int $tenantId): void
+    {
+        $items = $draft->world_characters ?? [];
+        if (empty($items)) {
+            return;
+        }
+
+        $updated = [];
+        foreach ($items as $item) {
+            $nome = trim($item['nome'] ?? '');
+            $tipo = $item['tipo'] ?? null;
+            if ($nome === '' || ! in_array($tipo, ['persona', 'animale'], true)) {
+                continue;
+            }
+
+            $worldCharacter = ! empty($item['character_id']) ? Character::find($item['character_id']) : null;
+            if (! $worldCharacter) {
+                $worldCharacter = new Character();
+            }
+
+            $worldCharacter->tenant_id = $tenantId;
+            $worldCharacter->name = $nome;
+            $worldCharacter->one_liner = $tipo === 'animale'
+                ? trim(($item['specie'] ?? '') . (($item['razza'] ?? '') !== '' ? ' (' . $item['razza'] . ')' : ''))
+                : ($item['descrizione'] ?? null);
+            if (! $worldCharacter->exists) {
+                $worldCharacter->slug = $this->uniqueSlug($nome);
+                $worldCharacter->status = 'draft';
+            }
+            $worldCharacter->save();
+
+            // character_visual_profiles: campi pensati per persone (hair_description/
+            // wardrobe_notes/visual_rules_text) degradano già puliti se lasciati vuoti —
+            // array_filter in EditorialContextBuilder/ImagePromptBuilder li omette (verificato
+            // leggendo il codice reale, non deciso a tavolino). Nessun profilo dedicato per
+            // animale: basta non popolare quei campi.
+            $faceDescription = $tipo === 'animale' ? ($item['aspetto'] ?? null) : ($item['descrizione'] ?? null);
+            if ($faceDescription) {
+                CharacterVisualProfile::updateOrCreate(
+                    ['character_id' => $worldCharacter->id],
+                    ['face_description' => $faceDescription]
+                );
+            }
+
+            $relationshipType = $tipo === 'animale' ? ($item['specie'] ?? 'animale') : ($item['relazione'] ?? null);
+
+            CharacterRelationship::updateOrCreate(
+                ['character_id' => $character->id, 'related_character_id' => $worldCharacter->id],
+                ['name' => $nome, 'type' => $relationshipType]
+            );
+
+            if ($tipo === 'persona' && in_array($item['relazione'] ?? null, CharacterKinship::RELATIONSHIP_TYPES, true)) {
+                CharacterKinship::updateOrCreate(
+                    ['character_id' => $character->id, 'related_character_id' => $worldCharacter->id],
+                    ['relationship_type' => $item['relazione']]
+                );
+            }
+
+            $item['character_id'] = $worldCharacter->id;
+            $updated[] = $item;
+        }
+
+        if (! empty($updated)) {
+            $draft->world_characters = $updated;
+            $draft->save();
         }
     }
 

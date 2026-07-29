@@ -23,13 +23,13 @@
             </svg>
         </div>
 
-        <h2>{{ ['intro'=>'Ciao! Costruiamo il tuo personaggio','why'=>'Sto prendendo forma...','identity'=>'Quasi pronto per un nome','personality'=>'Carattere in costruzione','voice'=>'Sto trovando la mia voce','humor'=>'Un pizzico di personalità in più','appearance'=>'Quasi finito','approfondimento'=>'Ancora più a fuoco','summary'=>'Eccomi, sono definito!'][$step] }}</h2>
+        <h2>{{ ['intro'=>'Ciao! Costruiamo il tuo personaggio','why'=>'Sto prendendo forma...','identity'=>'Quasi pronto per un nome','personality'=>'Carattere in costruzione','voice'=>'Sto trovando la mia voce','humor'=>'Un pizzico di personalità in più','appearance'=>'Quasi finito','mondo'=>'Non è mai solo/a','approfondimento'=>'Ancora più a fuoco','summary'=>'Eccomi, sono definito!'][$step] }}</h2>
         <p class="flavor">{{ ['intro'=>'Rispondi a poche domande veloci: mi trasformerò passo dopo passo in un personaggio vero, con una voce tutta sua.','why'=>'Obiettivo, pubblico e argomenti: sono le fondamenta di tutto il resto.','humor'=>'Anche "mai scherzare" è una scelta di carattere, non una casella vuota.','approfondimento'=>'Tutto facoltativo — puoi farlo con calma anche più avanti.','summary'=>'Non generato ancora — solo pronto, quando vorrai.'][$step] ?? 'Ogni risposta rende il personaggio un po\' più definito.' }}</p>
 
         @if($step !== 'intro')
             <div class="progress-list">
                 @foreach(array_slice($steps, 1) as $i => $s)
-                    @php($labels = ['why'=>'Perché esiste','identity'=>'Identità','personality'=>'Personalità','voice'=>'Come comunica','humor'=>'Umorismo','appearance'=>'Aspetto','approfondimento'=>'Approfondimento','summary'=>'Riepilogo'])
+                    @php($labels = ['why'=>'Perché esiste','identity'=>'Identità','personality'=>'Personalità','voice'=>'Come comunica','humor'=>'Umorismo','appearance'=>'Aspetto','mondo'=>'Il suo mondo','approfondimento'=>'Approfondimento','summary'=>'Riepilogo'])
                     @php($idx = $i + 1)
                     <div class="progress-item @if($idx < $stepIndex) done @elseif($idx === $stepIndex) active @endif">
                         <span class="progress-dot">{{ $idx < $stepIndex ? '✓' : $idx }}</span> {{ $labels[$s] }}
@@ -360,7 +360,81 @@
 
                 <div class="actions">
                     <button class="btn-ghost" wire:click="$set('step', 'humor')">← Indietro</button>
-                    <button class="btn-primary" :disabled="!canProceed" x-on:click="$wire.nextStep('appearance', @js(in_array('approfondimento', $steps, true) ? 'approfondimento' : 'summary'), { ageRange, presentation, styleArchetype, hairColor, hairLength, hairStyle, eyeColor, bodyType, noseDetail, mouthDetail, distinguishingDetail })">Avanti →</button>
+                    <button class="btn-primary" :disabled="!canProceed" x-on:click="$wire.nextStep('appearance', 'mondo', { ageRange, presentation, styleArchetype, hairColor, hairLength, hairStyle, eyeColor, bodyType, noseDetail, mouthDetail, distinguishingDetail })">Avanti →</button>
+                </div>
+            </div>
+        </div>
+        @endif
+
+        {{-- SCREEN: mondo — persone/animali del mondo del personaggio (mai gated su auth, come
+             "aspetto": la creazione reale dei Character collegati avviene solo alla conversione,
+             dopo la registrazione). Diverso da "keyRelationships" in Approfondimento, che resta
+             sempre solo narrativo. --}}
+        @if($step === 'mondo')
+        <div class="screen visible" x-data="{
+            worldCharacters: @js($worldCharacters),
+            newTipo: 'persona', newNome: '', newRelazione: '', newDescrizione: '',
+            newSpecie: '', newRazza: '', newAspetto: '',
+            addWorldCharacter() {
+                if (!this.newNome.trim()) return;
+                if (this.newTipo === 'persona') {
+                    if (!this.newRelazione) return;
+                    this.worldCharacters.push({ tipo: 'persona', nome: this.newNome.trim(), relazione: this.newRelazione, descrizione: this.newDescrizione.trim() });
+                } else {
+                    if (!this.newSpecie.trim()) return;
+                    this.worldCharacters.push({ tipo: 'animale', nome: this.newNome.trim(), specie: this.newSpecie.trim(), razza: this.newRazza.trim(), aspetto: this.newAspetto.trim() });
+                }
+                this.newNome = ''; this.newRelazione = ''; this.newDescrizione = '';
+                this.newSpecie = ''; this.newRazza = ''; this.newAspetto = '';
+            },
+        }">
+            <div class="card">
+                <p class="eyebrow">Step 7 di {{ count($steps) - 2 }}</p>
+                <h1>Chi c'è nel suo mondo?</h1>
+                <p class="subtitle">Marito/moglie, figli, animali domestici — le persone e gli animali che fanno già parte della sua vita. Facoltativo, ma rende i contenuti molto più credibili: diventano personaggi a sé (per ora "dietro le quinte", mai pubblicano da soli) invece di restare solo un nome citato nei post.</p>
+
+                <template x-for="(persona_o_animale, idx) in worldCharacters" :key="idx">
+                    <div class="chip" style="margin-bottom:8px; display:flex; align-items:center; gap:8px; width:100%;" x-on:click="worldCharacters.splice(idx, 1)">
+                        <span x-text="(persona_o_animale.tipo === 'animale' ? '🐾 ' : '🧑 ') + persona_o_animale.nome + ' · ' + (persona_o_animale.tipo === 'animale' ? persona_o_animale.specie : persona_o_animale.relazione)"></span>
+                    </div>
+                </template>
+
+                <div class="chip-row" style="margin-bottom:14px;">
+                    <div class="chip" :class="{ selected: newTipo === 'persona' }" x-on:click="newTipo = 'persona'">🧑 Persona</div>
+                    <div class="chip" :class="{ selected: newTipo === 'animale' }" x-on:click="newTipo = 'animale'">🐾 Animale</div>
+                </div>
+
+                <div x-show="newTipo === 'persona'" style="display:flex; gap:8px; flex-wrap:wrap;">
+                    <input type="text" class="text-input" style="width:160px;" x-model="newNome" placeholder="Nome">
+                    <select class="text-input" style="width:160px;" x-model="newRelazione">
+                        <option value="">Tipo di relazione</option>
+                        <option value="marito">Marito</option>
+                        <option value="moglie">Moglie</option>
+                        <option value="compagno_a">Compagno/a</option>
+                        <option value="figlio">Figlio</option>
+                        <option value="figlia">Figlia</option>
+                        <option value="genitore">Genitore</option>
+                        <option value="fratello">Fratello</option>
+                        <option value="sorella">Sorella</option>
+                        <option value="amico_a">Amico/a</option>
+                        <option value="collega">Collega</option>
+                        <option value="altro">Altro</option>
+                    </select>
+                    <input type="text" class="text-input" style="width:220px;" x-model="newDescrizione" placeholder="Una descrizione libera (facoltativo)">
+                    <button type="button" class="chip" x-on:click="addWorldCharacter">+ Aggiungi</button>
+                </div>
+
+                <div x-show="newTipo === 'animale'" style="display:none; gap:8px; flex-wrap:wrap;">
+                    <input type="text" class="text-input" style="width:140px;" x-model="newNome" placeholder="Nome">
+                    <input type="text" class="text-input" style="width:140px;" x-model="newSpecie" placeholder="Specie (es. cane, gatto)">
+                    <input type="text" class="text-input" style="width:140px;" x-model="newRazza" placeholder="Razza (facoltativo)">
+                    <input type="text" class="text-input" style="width:220px;" x-model="newAspetto" placeholder="Aspetto fisico breve (facoltativo)">
+                    <button type="button" class="chip" x-on:click="addWorldCharacter">+ Aggiungi</button>
+                </div>
+
+                <div class="actions">
+                    <button class="btn-ghost" wire:click="$set('step', 'appearance')">← Indietro</button>
+                    <button class="btn-primary" x-on:click="$wire.nextStep('mondo', @js(in_array('approfondimento', $steps, true) ? 'approfondimento' : 'summary'), { worldCharacters })">Avanti →</button>
                 </div>
             </div>
         </div>

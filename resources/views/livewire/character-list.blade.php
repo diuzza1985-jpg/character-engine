@@ -60,6 +60,7 @@
 
     <x-confirm-modal
         show="confirmDelete !== null"
+        close="confirmDelete = null"
         title="Conferma eliminazione"
         confirm-click="confirmDelete?.type === 'character' ? $wire.deleteCharacter(confirmDelete.id) : $wire.deleteDraft(confirmDelete.id); confirmDelete = null"
         confirm-label="Elimina"

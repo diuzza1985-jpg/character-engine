@@ -22,6 +22,7 @@
 
     <x-confirm-modal
         show="confirmForceDelete !== null"
+        close="confirmForceDelete = null"
         title="Eliminare per sempre?"
         confirm-click="$wire.forceDelete(confirmForceDelete.id); confirmForceDelete = null"
         confirm-label="Elimina per sempre"

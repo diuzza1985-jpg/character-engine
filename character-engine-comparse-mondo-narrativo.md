@@ -127,23 +127,54 @@ Verificato anche con un caso reale in Fase 1 (vedi sotto).
   `Character::where('status','active')` non lo include; `php artisan character:live-tick 9`
   (il suo id) rifiuta esplicitamente ("non è attivo, tick saltato").
 
-## Fase 2 — Wizard: persone/animali del mondo del personaggio (in corso)
+## Fase 2 — Wizard: persone/animali del mondo del personaggio (completata)
 
-Piano (da verificare/adattare durante l'implementazione):
-
-- `character_drafts` esteso con un elenco di persone/animali.
-- `ConvertCharacterDraftToCharacter` crea per ciascuno un `Character` in draft (stesso meccanismo
-  del personaggio principale, senza il passo di attivazione/registrazione) + la riga
-  `character_relationships` collegata.
-- Modulo biforcato per tipo fin dalla prima versione: ramo persona (nome, tipo di relazione,
-  descrizione libera, foto opzionale) e ramo animale (nome, specie, razza opzionale, aspetto
-  fisico breve, foto opzionale) — campi diversi, non una variante minore.
-- Prima di decidere come gestire `character_visual_profile` per un animale (hair_description,
-  wardrobe_notes ecc. — pensati per persone): verificare come li legge davvero il codice
-  (`PromptBuilder`/`EditorialBrainService`) prima di scegliere riuso improprio, generalizzazione
-  dei nomi, o profilo dedicato più snello.
+- `character_drafts.world_characters` (json, nullable): elenco di voci
+  `{tipo: persona|animale, nome, relazione?, descrizione?, specie?, razza?, aspetto?, character_id?}`.
+  Il `character_id` è assente alla prima compilazione e viene valorizzato da
+  `syncWorldCharacters()` dopo la prima conversione, così una riconversione successiva
+  (riapertura del questionario) aggiorna lo stesso `Character` invece di duplicarlo — stesso
+  principio update-in-place già usato per il personaggio principale.
+- Nuovo step "mondo" nel wizard pubblico (`CharacterCreationWizard`), sempre presente (non gated
+  su edit-mode né su `auth()->check()`, a differenza di "Approfondimento"), subito dopo
+  "appearance". **Biforcato per tipo fin dalla prima versione**, come deciso: ramo persona (nome,
+  tipo di relazione da un elenco fisso di 11 — riusa `CharacterKinship::RELATIONSHIP_TYPES` — ,
+  descrizione libera) e ramo animale (nome, specie obbligatoria, razza opzionale, aspetto fisico
+  breve) — campi diversi, non una variante minore dello stesso form.
+- `ConvertCharacterDraftToCharacter::syncWorldCharacters()`: per ogni voce valida (nome non vuoto,
+  tipo persona/animale) crea o aggiorna un `Character` reale in `status: draft`, senza social
+  account — stesso meccanismo del personaggio principale, nessuna colonna di "ruolo" (coerente con
+  la decisione della Fase 1).
+- **Verificato leggendo il codice reale, non deciso a tavolino**: `character_visual_profile` è
+  letto ovunque (`EditorialContextBuilder::buildVisualProfile()`, `ImagePromptBuilder`) tramite
+  `array_filter()`, quindi campi nulli spariscono dal testo renderizzato senza alcun caso speciale.
+  Conseguenza: nessun profilo dedicato per gli animali, nessuna generalizzazione forzata dei nomi
+  campo — si popola solo `face_description` (per la persona: la `descrizione` libera; per
+  l'animale: l'`aspetto` fisico breve), tutto il resto resta `null` e degrada pulito.
+- **Decisione presa durante l'implementazione** (non solo `character_relationships`): per le
+  persone con un tipo di relazione valido si scrive anche una riga `character_kinships` (oltre
+  alla `character_relationships` narrativa), così il collegamento compare anche nella tab
+  "Parentele" con l'etichetta inversa già esistente. Per gli animali non si scrive mai
+  `character_kinships` (nessuna parentela sensata), solo `character_relationships` con
+  `type = specie`.
+- **Verificato in tinker con dati reali**: creato un draft con una voce persona (relazione
+  "marito") e una voce animale (specie "gatto"), eseguita `convert()` — confermate righe reali
+  `Character` (status draft), `CharacterVisualProfile.face_description`, `CharacterRelationship`
+  (type = relazione o specie), `CharacterKinship` (solo per la persona). Rieseguita `convert()`
+  una seconda volta dopo aver modificato la descrizione della persona: **nessun secondo
+  `Character` creato**, lo stesso record è stato aggiornato in place. Dati di test poi rimossi
+  dal DB.
+- Suite di test completa (64 test, 296 assertion) verde dopo la modifica — inclusi 2 test in
+  `CharacterWizardEditModeTest` riscritti perché il bottone "appearance" ora punta sempre a
+  "mondo" invece che direttamente ad approfondimento/summary.
+- Verificato via `git diff | grep -in "sofia|fernando"` (nessun match) che il codice di questa
+  fase resta completamente generico, coerente con il principio guida in cima a questo documento.
 - Chiude anche il bug noto di Pippo (nessuna foto di riferimento salvata oggi, causa di
-  un'incoerenza visiva già osservata) — con l'asset reale si risolve alla radice.
+  un'incoerenza visiva già osservata) **solo quando l'asset verrà effettivamente caricato** — il
+  campo "foto opzionale" previsto dal piano originale non è stato incluso in questa fase: si
+  aggiungerà insieme al meccanismo di consenso della Fase 4, per non introdurre ora un upload
+  senza la base legale/di audit che lo accompagna. Fino ad allora una voce del mondo del
+  personaggio resta priva di reference visiva propria.
 
 ## Fase 3 — Generazione immagine con più soggetti (da fare)
 

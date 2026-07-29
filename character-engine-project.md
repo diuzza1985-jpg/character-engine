@@ -29,7 +29,14 @@ fasi. Stato a oggi:
   personaggio "secondario" resta un `Character` normale in status draft. Verificato con un caso
   reale (Fernando creato come Character vero, collegato e confermato dormiente su tutta la
   pipeline).
-- **Fase 2 (wizard persone/animali)**: in corso.
+- **Fase 2 (wizard persone/animali)**: completata. Nuovo step "mondo" biforcato persona/animale,
+  `character_drafts.world_characters`, `ConvertCharacterDraftToCharacter::syncWorldCharacters()`
+  crea/aggiorna un `Character` reale in draft per ciascuna voce + `CharacterVisualProfile` (solo
+  `face_description`, verificato che il resto degrada pulito via `array_filter`) +
+  `CharacterRelationship` + `CharacterKinship` (solo per le persone). Verificato in tinker con
+  dati reali incluso update-in-place su riconversione; 64 test verdi; nessuna stringa
+  personaggio-specifica nel diff. "Foto opzionale" rimandata alla Fase 4 (serve prima il
+  meccanismo di consenso).
 - **Fase 3 (generazione multi-soggetto)**: da fare.
 - **Fase 4 (asset caricati dall'utente)**: da fare.
 

@@ -96,4 +96,32 @@ class CharacterListTest extends TestCase
         Livewire::actingAs($user)->test(CharacterList::class)
             ->call('deleteCharacter', $character->id);
     }
+
+    public function test_deleting_a_draft_physically_removes_it_no_trash(): void
+    {
+        $tenant = Tenant::create(['name' => 'Delete Draft', 'email' => 'delete-draft@example.com', 'status' => 'trial']);
+        $user = User::factory()->create(['tenant_id' => $tenant->id]);
+        $draft = CharacterDraft::create(['session_token' => 'a', 'tenant_id' => $tenant->id, 'name' => 'Bozza Da Eliminare', 'status' => 'in_corso']);
+
+        Livewire::actingAs($user)->test(CharacterList::class)
+            ->call('deleteDraft', $draft->id);
+
+        $this->assertDatabaseMissing('character_drafts', ['id' => $draft->id]);
+
+        $response = $this->actingAs($user)->get(route('character.panel'));
+        $response->assertDontSee('Bozza Da Eliminare');
+    }
+
+    public function test_cannot_delete_a_draft_belonging_to_another_tenant(): void
+    {
+        $tenant = Tenant::create(['name' => 'Mine Draft', 'email' => 'mine-draft@example.com', 'status' => 'trial']);
+        $other = Tenant::create(['name' => 'Other Draft', 'email' => 'other-draft@example.com', 'status' => 'trial']);
+        $user = User::factory()->create(['tenant_id' => $tenant->id]);
+        $draft = CharacterDraft::create(['session_token' => 'b', 'tenant_id' => $other->id, 'name' => 'Non Mia', 'status' => 'in_corso']);
+
+        $this->expectException(ModelNotFoundException::class);
+
+        Livewire::actingAs($user)->test(CharacterList::class)
+            ->call('deleteDraft', $draft->id);
+    }
 }

@@ -27,6 +27,20 @@ class CharacterList extends Component
         $character->delete();
     }
 
+    /**
+     * Fisica, non logica: le bozze non hanno SoftDeletes (stesso trattamento già riservato loro
+     * da character-drafts:prune-expired, che le elimina fisicamente alla scadenza) — non portano
+     * identità/asset/bible di un personaggio reale, non serve un cestino per recuperarle.
+     */
+    public function deleteDraft(string $draftId): void
+    {
+        $tenant = auth()->user()->tenant;
+        abort_unless($tenant, 403);
+
+        $draft = CharacterDraft::where('tenant_id', $tenant->id)->whereNull('character_id')->findOrFail($draftId);
+        $draft->delete();
+    }
+
     public function render()
     {
         $tenant = auth()->user()->tenant;

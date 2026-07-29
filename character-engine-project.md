@@ -604,7 +604,14 @@ Piano completo in `character-engine-comparse-mondo-narrativo.md` (11.24 ne ripre
 - **Decisione presa durante l'implementazione**: per le persone con relazione valida, scritta anche una riga `CharacterKinship` (compare nella tab "Parentele" esistente) oltre alla `CharacterRelationship`. Il campo "foto opzionale" per queste voci è stato deliberatamente rimandato alla Fase 5 (consenso legale) invece di essere incluso ora.
 - Suite 64 test/296 assertion verde, nessuna stringa Sofia/Fernando nel diff (verificato).
 
-**Resta da fare**: generazione immagine multi-soggetto (`nano-banana-pro`, Fase 3), asset caricati dall'utente + consenso legale (Fase 5, ora include anche la foto delle voci del mondo del personaggio).
+**Fase 3 — generazione immagine multi-soggetto — fatta, commit `5b9e202` (29 luglio 2026)**:
+- `FalImageService::generateWithMultipleSubjects()` usa `fal-ai/nano-banana-pro/edit` (non ideogram-character, che userebbe solo la prima reference). Schema reale verificato via openapi.json della queue fal: `image_urls` (non `reference_image_urls`), nessun parametro `negative_prompt` (le esclusioni vanno scritte dentro il prompt stesso), nessun `seed` mai restituito in risposta.
+- Nuovo campo dello schema del cervello editoriale, `personaggio_coinvolto_id`: valorizzabile solo con l'id di una relazione marcata `puo_comparire_in_foto` (vero solo se ha `related_character_id`) — stesso principio già in uso per `storyline_id`, mai un id inventato. Nuova guardia in `validate()`: incompatibile con i formati che non generano mai una foto del personaggio principale (`oggetto`/`tema_caldo`/`conversazione`).
+- `GenerateInstagramPostJob::resolveSecondaryReference()`: risolve l'id in un `CharacterAsset` reale della persona/animale collegato, riusando `ReferenceImageSelector::pick()` (già generico, funziona per qualunque `Character`). Degrada silenziosamente al post a soggetto singolo se l'id non è valido o quella persona/animale non ha ancora nessun asset — non un errore che blocca la pubblicazione.
+- Verificato con chiamate reali dirette all'endpoint e poi con una chiamata reale al metodo vero e proprio: compone davvero due soggetti distinti nella stessa immagine. Non verificabile ancora la fedeltà visiva a un vero Fernando/Pippo (nessun asset reale esiste per loro oggi) — solo la meccanica tecnica, con un asset di test temporaneo poi rimosso.
+- Suite 64/64 verde, nessuna stringa Sofia/Fernando nel diff di codice.
+
+**Resta da fare**: asset caricati dall'utente + consenso legale (Fase 5, ora include anche la foto delle voci del mondo del personaggio e la verifica visiva reale di Fernando/Pippo in scena).
 
 ## 12. Prossimi passi possibili
 

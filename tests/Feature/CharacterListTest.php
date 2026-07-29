@@ -2,11 +2,14 @@
 
 namespace Tests\Feature;
 
+use App\Livewire\CharacterList;
 use App\Models\Character;
 use App\Models\CharacterDraft;
 use App\Models\Tenant;
 use App\Models\User;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
+use Livewire\Livewire;
 use Tests\TestCase;
 
 class CharacterListTest extends TestCase
@@ -64,5 +67,33 @@ class CharacterListTest extends TestCase
         $response = $this->get(route('character.panel'));
 
         $response->assertRedirect(route('login'));
+    }
+
+    public function test_deleting_a_character_soft_deletes_it_and_removes_it_from_the_list(): void
+    {
+        $tenant = Tenant::create(['name' => 'Delete Test', 'email' => 'delete-test@example.com', 'status' => 'trial']);
+        $user = User::factory()->create(['tenant_id' => $tenant->id]);
+        $character = Character::create(['tenant_id' => $tenant->id, 'name' => 'Da Eliminare', 'slug' => 'da-eliminare-' . uniqid(), 'status' => 'draft']);
+
+        Livewire::actingAs($user)->test(CharacterList::class)
+            ->call('deleteCharacter', $character->id);
+
+        $this->assertSoftDeleted($character);
+
+        $response = $this->actingAs($user)->get(route('character.panel'));
+        $response->assertDontSee('Da Eliminare');
+    }
+
+    public function test_cannot_delete_a_character_belonging_to_another_tenant(): void
+    {
+        $tenant = Tenant::create(['name' => 'Mine Delete', 'email' => 'mine-delete@example.com', 'status' => 'trial']);
+        $other = Tenant::create(['name' => 'Other Delete', 'email' => 'other-delete@example.com', 'status' => 'trial']);
+        $user = User::factory()->create(['tenant_id' => $tenant->id]);
+        $character = Character::create(['tenant_id' => $other->id, 'name' => 'Non Mio', 'slug' => 'non-mio-elim-' . uniqid(), 'status' => 'draft']);
+
+        $this->expectException(ModelNotFoundException::class);
+
+        Livewire::actingAs($user)->test(CharacterList::class)
+            ->call('deleteCharacter', $character->id);
     }
 }

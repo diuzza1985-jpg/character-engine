@@ -21,6 +21,7 @@
     --font-body:'Plus Jakarta Sans',sans-serif;
   }
   *{box-sizing:border-box;}
+  [x-cloak]{ display:none !important; }
   body{
     margin:0;
     font-family:var(--font-body);

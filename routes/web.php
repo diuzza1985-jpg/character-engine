@@ -43,10 +43,17 @@ Route::get('/crediti', function () {
 
 use App\Livewire\CharacterList;
 use App\Livewire\CharacterDetail;
+use App\Livewire\CharacterTrash;
 
 Route::get('/personaggi', CharacterList::class)
     ->middleware('auth')
     ->name('character.panel');
+
+// Prima di /personaggi/{character}: altrimenti "cestino" verrebbe risolto come un {character}
+// (route model binding per id) e darebbe 404 invece di raggiungere questa rotta.
+Route::get('/personaggi/cestino', CharacterTrash::class)
+    ->middleware('auth')
+    ->name('character.trash');
 
 Route::get('/personaggi/{character}', CharacterDetail::class)
     ->middleware('auth')

@@ -27,6 +27,8 @@
         <div class="actions" style="margin-top:0;">
             @if($character->draft)
                 <a href="{{ route('character.edit', $character) }}" class="btn-outline">Modifica questionario</a>
+            @elseif($character->kind)
+                <span class="counter">{{ $character->kind === 'animale' ? '🐾 Animale' : '🧑 Persona' }}{{ $worldCharacterOwnerName ? " del mondo di {$worldCharacterOwnerName}" : '' }} — modifica qui sotto, non nel questionario</span>
             @else
                 <span class="counter">Creato fuori dal questionario — non modificabile da qui</span>
             @endif
@@ -98,6 +100,32 @@
                     @endif
                 </div>
             @endif
+        @elseif($character->kind)
+            <div class="field-label" style="margin-top:22px;">Modifica {{ $character->kind === 'animale' ? "l'animale" : 'la persona' }}</div>
+            <div style="display:flex; gap:14px; flex-wrap:wrap; margin-top:8px;">
+                <input type="text" class="text-input" style="flex:1 1 240px;" wire:model="editNome" placeholder="Nome">
+                @if($character->kind === 'animale')
+                    <input type="text" class="text-input" style="flex:1 1 200px;" wire:model="editSpecie" placeholder="Specie (es. cane, gatto)">
+                    <input type="text" class="text-input" style="flex:1 1 200px;" wire:model="editRazza" placeholder="Razza (facoltativo)">
+                    <input type="text" class="text-input" style="flex:1 1 100%;" wire:model="editAspetto" placeholder="Aspetto fisico breve (facoltativo)">
+                    <input type="text" class="text-input" style="flex:1 1 100%;" wire:model="editCarattere" placeholder="Carattere (facoltativo)">
+                @else
+                    <select class="text-input" style="flex:1 1 200px;" wire:model="editRelazione">
+                        <option value="">Tipo di relazione</option>
+                        @foreach($relationshipTypes as $type)
+                            <option value="{{ $type }}">{{ $type }}</option>
+                        @endforeach
+                    </select>
+                    <input type="text" class="text-input" style="flex:1 1 100%;" wire:model="editDescrizione" placeholder="Carattere / descrizione libera (facoltativo)">
+                @endif
+            </div>
+            @error('editNome') <p class="field-hint" style="color:#F58E4E;">{{ $message }}</p> @enderror
+            @error('editSpecie') <p class="field-hint" style="color:#F58E4E;">{{ $message }}</p> @enderror
+            @error('editRelazione') <p class="field-hint" style="color:#F58E4E;">{{ $message }}</p> @enderror
+            <div class="actions" style="margin-top:14px;">
+                <span></span>
+                <button class="btn-primary" wire:click="updateWorldCharacterFields">Salva modifiche</button>
+            </div>
         @else
             <div class="generic-pane" style="margin-top:22px;">Nessun dato del questionario disponibile — questo personaggio è stato creato fuori dal questionario.</div>
         @endif

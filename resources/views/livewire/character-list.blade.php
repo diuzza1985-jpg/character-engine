@@ -39,7 +39,7 @@
             @foreach($characters as $character)
                 @php($statusLabel = $character->status === 'active' ? 'Attivo' : 'Salvato')
                 <div class="summary-row">
-                    <span class="k">{{ $character->name }}</span>
+                    <span class="k">{{ $character->name }}@if($character->kind) <span class="field-hint" style="display:inline; font-weight:600;">({{ $character->kind === 'animale' ? '🐾 animale' : '🧑 persona' }})</span>@endif</span>
                     <span class="v">
                         <span class="counter @if($character->status === 'active') ok @endif">{{ $statusLabel }}</span>
                         <a href="{{ route('character.show', $character) }}" style="color:#B39BFF; margin-left:10px;">Apri →</a>

@@ -4,12 +4,19 @@ namespace Tests\Feature;
 
 use App\Livewire\CharacterDetail;
 use App\Models\Character;
+use App\Models\CharacterAsset;
+use App\Models\CharacterDraft;
 use App\Models\CharacterKinship;
+use App\Models\CharacterRelationship;
+use App\Models\CharacterVisualProfile;
 use App\Models\CreditLedger;
 use App\Models\SocialAccount;
 use App\Models\Tenant;
 use App\Models\User;
+use App\Services\ConvertCharacterDraftToCharacter;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 use Livewire\Livewire;
 use Tests\TestCase;
 
@@ -145,5 +152,115 @@ class CharacterDetailTest extends TestCase
         $response->assertSee('curioso, generoso');
         $response->assertDontSee('Testo prosa generato, non deve mai comparire qui');
         $response->assertSee(route('character.edit', $character), false);
+    }
+
+    public function test_editing_an_animal_world_character_updates_it_and_stays_in_sync_with_the_owning_draft(): void
+    {
+        [$tenant, $user, $owner] = $this->makeTenantUserCharacter();
+        $draft = CharacterDraft::create([
+            'session_token' => 'edit-animal-' . uniqid(),
+            'tenant_id' => $tenant->id,
+            'character_id' => $owner->id,
+            'name' => $owner->name,
+            'goal' => 'Intrattenere',
+            'niche' => ['Tecnologia'],
+            'world_characters' => [
+                ['tipo' => 'animale', 'nome' => 'Bau', 'specie' => 'cane', 'razza' => 'Meticcio', 'aspetto' => 'Pelo marrone'],
+            ],
+        ]);
+        app(ConvertCharacterDraftToCharacter::class)->convert($draft, $tenant->id);
+        $animal = Character::where('tenant_id', $tenant->id)->where('name', 'Bau')->first();
+
+        Livewire::actingAs($user)->test(CharacterDetail::class, ['character' => $animal])
+            ->assertSet('editNome', 'Bau')
+            ->assertSet('editSpecie', 'cane')
+            ->set('editNome', 'Bau Aggiornato')
+            ->set('editAspetto', 'Pelo marrone con una macchia bianca')
+            ->set('editCarattere', 'Pigro')
+            ->call('updateWorldCharacterFields')
+            ->assertHasNoErrors();
+
+        $animal->refresh();
+        $this->assertSame('Bau Aggiornato', $animal->name);
+        $this->assertSame('cane (Meticcio) — Pigro', $animal->one_liner);
+
+        $visualProfile = CharacterVisualProfile::where('character_id', $animal->id)->first();
+        $this->assertSame('Pelo marrone con una macchia bianca', $visualProfile->face_description);
+
+        $relationship = CharacterRelationship::where('character_id', $owner->id)->where('related_character_id', $animal->id)->first();
+        $this->assertSame('Bau Aggiornato', $relationship->name);
+
+        // La voce nella draft che lo ha dichiarato deve restare sincronizzata, altrimenti un
+        // futuro resave del questionario del proprietario la sovrascriverebbe con i dati vecchi.
+        $draft->refresh();
+        $this->assertSame('Bau Aggiornato', $draft->world_characters[0]['nome']);
+        $this->assertSame('Pigro', $draft->world_characters[0]['carattere']);
+    }
+
+    public function test_editing_a_persona_world_character(): void
+    {
+        [$tenant, $user, $owner] = $this->makeTenantUserCharacter();
+        $draft = CharacterDraft::create([
+            'session_token' => 'edit-persona-' . uniqid(),
+            'tenant_id' => $tenant->id,
+            'character_id' => $owner->id,
+            'name' => $owner->name,
+            'goal' => 'Intrattenere',
+            'niche' => ['Tecnologia'],
+            'world_characters' => [
+                ['tipo' => 'persona', 'nome' => 'Marco', 'relazione' => 'marito', 'descrizione' => 'Vecchia descrizione'],
+            ],
+        ]);
+        app(ConvertCharacterDraftToCharacter::class)->convert($draft, $tenant->id);
+        $marco = Character::where('tenant_id', $tenant->id)->where('name', 'Marco')->first();
+
+        Livewire::actingAs($user)->test(CharacterDetail::class, ['character' => $marco])
+            ->assertSet('editRelazione', 'marito')
+            ->set('editDescrizione', 'Nuova descrizione')
+            ->call('updateWorldCharacterFields')
+            ->assertHasNoErrors();
+
+        $marco->refresh();
+        $this->assertSame('Nuova descrizione', $marco->one_liner);
+        $draft->refresh();
+        $this->assertSame('Nuova descrizione', $draft->world_characters[0]['descrizione']);
+    }
+
+    public function test_editing_falls_back_to_a_direct_update_when_no_owning_draft_is_found(): void
+    {
+        [$tenant, $user, $owner] = $this->makeTenantUserCharacter();
+        // Dati "orfani" deliberati: un Character con kind valorizzato ma nessuna draft del tenant
+        // lo referenzia nel proprio world_characters (caso limite, non il percorso normale).
+        $animal = Character::create(['tenant_id' => $tenant->id, 'name' => 'Orfano', 'kind' => 'animale', 'slug' => 'orfano-' . uniqid(), 'status' => 'draft']);
+        CharacterRelationship::create(['character_id' => $owner->id, 'related_character_id' => $animal->id, 'name' => 'Orfano', 'type' => 'gatto']);
+
+        Livewire::actingAs($user)->test(CharacterDetail::class, ['character' => $animal])
+            ->set('editNome', 'Orfano Rinominato')
+            ->set('editSpecie', 'gatto')
+            ->call('updateWorldCharacterFields')
+            ->assertHasNoErrors();
+
+        $animal->refresh();
+        $this->assertSame('Orfano Rinominato', $animal->name);
+        $relationship = CharacterRelationship::where('character_id', $owner->id)->where('related_character_id', $animal->id)->first();
+        $this->assertSame('Orfano Rinominato', $relationship->name);
+    }
+
+    public function test_uploading_an_asset_for_an_animal_world_character_works(): void
+    {
+        Storage::fake('local');
+        [$tenant, $user, $owner] = $this->makeTenantUserCharacter();
+        $animal = Character::create(['tenant_id' => $tenant->id, 'name' => 'Fuffi', 'kind' => 'animale', 'slug' => 'fuffi-' . uniqid(), 'status' => 'draft']);
+
+        Livewire::actingAs($user)->test(CharacterDetail::class, ['character' => $animal])
+            ->set('newAssetType', 'face')
+            ->set('newAssetFile', UploadedFile::fake()->image('fuffi.jpg'))
+            ->set('newAssetConsent', true)
+            ->call('uploadAsset')
+            ->assertHasNoErrors();
+
+        $asset = CharacterAsset::where('character_id', $animal->id)->first();
+        $this->assertNotNull($asset);
+        Storage::disk('local')->assertExists($asset->file_path);
     }
 }

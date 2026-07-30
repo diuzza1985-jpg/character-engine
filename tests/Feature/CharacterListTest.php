@@ -37,6 +37,21 @@ class CharacterListTest extends TestCase
         $response->assertSeeInOrder(['Bozza In Corso', 'Personaggi']);
     }
 
+    public function test_shows_a_kind_badge_for_world_characters(): void
+    {
+        $tenant = Tenant::create(['name' => 'Kind Badge Test', 'email' => 'kind-badge-test@example.com', 'status' => 'trial']);
+        $user = User::factory()->create(['tenant_id' => $tenant->id]);
+
+        Character::create(['tenant_id' => $tenant->id, 'name' => 'Principale', 'slug' => 'principale-' . uniqid(), 'status' => 'active']);
+        Character::create(['tenant_id' => $tenant->id, 'name' => 'Bau', 'kind' => 'animale', 'slug' => 'bau-' . uniqid(), 'status' => 'draft']);
+        Character::create(['tenant_id' => $tenant->id, 'name' => 'Marco', 'kind' => 'persona', 'slug' => 'marco-' . uniqid(), 'status' => 'draft']);
+
+        $response = $this->actingAs($user)->get(route('character.panel'));
+
+        $response->assertSee('🐾 animale');
+        $response->assertSee('🧑 persona');
+    }
+
     public function test_does_not_show_drafts_or_characters_from_another_tenant(): void
     {
         $tenant = Tenant::create(['name' => 'Mine', 'email' => 'mine@example.com', 'status' => 'trial']);

@@ -5,7 +5,11 @@ namespace App\Livewire;
 use App\Models\AssetUploadConsent;
 use App\Models\Character;
 use App\Models\CharacterAsset;
+use App\Models\CharacterDraft;
 use App\Models\CharacterKinship;
+use App\Models\CharacterRelationship;
+use App\Models\CharacterVisualProfile;
+use App\Services\ConvertCharacterDraftToCharacter;
 use App\Services\HouseholdAnimalSync;
 use App\Support\AssetUploadConsentText;
 use Livewire\Component;
@@ -35,10 +39,117 @@ class CharacterDetail extends Component
     public $newAssetFile = null;
     public bool $newAssetConsent = false;
 
+    // Personaggio "del mondo" (Fase 2 mondo narrativo, kind persona|animale, nessuna draft
+    // propria): campi di modifica leggera, solo quelli raccolti alla creazione — mai il
+    // questionario completo, pensato per il personaggio principale.
+    public string $editNome = '';
+    public string $editRelazione = '';
+    public string $editDescrizione = '';
+    public string $editSpecie = '';
+    public string $editRazza = '';
+    public string $editAspetto = '';
+    public string $editCarattere = '';
+    public ?string $worldCharacterOwnerName = null;
+
     public function mount(Character $character): void
     {
         abort_unless($character->tenant_id === auth()->user()->tenant_id, 403);
         $this->character = $character;
+
+        if ($this->character->kind) {
+            $this->hydrateWorldCharacterFields();
+        }
+    }
+
+    /**
+     * La draft che ha dichiarato questo personaggio (character_id nel suo world_characters, non
+     * la SUA draft — non ne ha una propria) è l'unica fonte affidabile dei campi originali: cercarla
+     * tra tutte le draft convertite del tenant, non assumere che esista una scorciatoia più diretta.
+     */
+    private function findOwningDraftAndItemIndex(): array
+    {
+        $drafts = CharacterDraft::where('tenant_id', $this->character->tenant_id)
+            ->whereNotNull('character_id')
+            ->get();
+
+        foreach ($drafts as $draft) {
+            foreach ($draft->world_characters ?? [] as $index => $item) {
+                if (($item['character_id'] ?? null) === $this->character->id) {
+                    return [$draft, $index];
+                }
+            }
+        }
+
+        return [null, null];
+    }
+
+    private function hydrateWorldCharacterFields(): void
+    {
+        [$draft, $index] = $this->findOwningDraftAndItemIndex();
+        $item = $draft ? ($draft->world_characters[$index] ?? []) : [];
+
+        $this->editNome = $item['nome'] ?? $this->character->name;
+        $this->editRelazione = $item['relazione'] ?? '';
+        $this->editDescrizione = $item['descrizione'] ?? '';
+        $this->editSpecie = $item['specie'] ?? '';
+        $this->editRazza = $item['razza'] ?? '';
+        $this->editAspetto = $item['aspetto'] ?? '';
+        $this->editCarattere = $item['carattere'] ?? '';
+        $this->worldCharacterOwnerName = $draft?->character?->name;
+    }
+
+    /**
+     * Salva le modifiche di un personaggio "del mondo" — mai il questionario completo. Se troviamo
+     * la draft che lo ha dichiarato, aggiorniamo la sua voce in world_characters e riconvertiamo
+     * (stessa ConvertCharacterDraftToCharacter del wizard: profilo visivo, relazioni, propagazione
+     * in famiglia restano coerenti, nessuna logica duplicata qui). Se non la troviamo (dati orfani,
+     * caso limite), aggiorniamo comunque i campi diretti perché la modifica non vada persa.
+     */
+    public function updateWorldCharacterFields(): void
+    {
+        abort_unless($this->character->kind !== null, 404);
+
+        if ($this->character->kind === 'animale') {
+            $this->validate([
+                'editNome' => ['required', 'string', 'max:255'],
+                'editSpecie' => ['required', 'string', 'max:255'],
+            ], [], ['editNome' => 'nome', 'editSpecie' => 'specie']);
+        } else {
+            $this->validate([
+                'editNome' => ['required', 'string', 'max:255'],
+                'editRelazione' => ['required', 'string', 'in:' . implode(',', CharacterKinship::RELATIONSHIP_TYPES)],
+            ], [], ['editNome' => 'nome', 'editRelazione' => 'tipo di relazione']);
+        }
+
+        [$draft, $index] = $this->findOwningDraftAndItemIndex();
+
+        if ($draft !== null) {
+            $items = $draft->world_characters;
+            $items[$index] = $this->character->kind === 'animale'
+                ? ['tipo' => 'animale', 'nome' => $this->editNome, 'specie' => $this->editSpecie, 'razza' => $this->editRazza, 'aspetto' => $this->editAspetto, 'carattere' => $this->editCarattere, 'character_id' => $this->character->id]
+                : ['tipo' => 'persona', 'nome' => $this->editNome, 'relazione' => $this->editRelazione, 'descrizione' => $this->editDescrizione, 'character_id' => $this->character->id];
+            $draft->world_characters = $items;
+            $draft->save();
+
+            app(ConvertCharacterDraftToCharacter::class)->convert($draft, $this->character->tenant_id);
+        } else {
+            $this->character->name = $this->editNome;
+            $this->character->one_liner = $this->character->kind === 'animale'
+                ? trim($this->editSpecie.($this->editRazza !== '' ? " ({$this->editRazza})" : '').($this->editCarattere !== '' ? " — {$this->editCarattere}" : ''))
+                : $this->editDescrizione;
+            $this->character->save();
+
+            $faceDescription = $this->character->kind === 'animale' ? $this->editAspetto : $this->editDescrizione;
+            if ($faceDescription !== '') {
+                CharacterVisualProfile::updateOrCreate(['character_id' => $this->character->id], ['face_description' => $faceDescription]);
+            }
+
+            $newType = $this->character->kind === 'animale' ? $this->editSpecie : $this->editRelazione;
+            CharacterRelationship::where('related_character_id', $this->character->id)->update(['name' => $this->editNome, 'type' => $newType]);
+        }
+
+        $this->character->refresh();
+        $this->hydrateWorldCharacterFields();
     }
 
     public function addKinship(): void

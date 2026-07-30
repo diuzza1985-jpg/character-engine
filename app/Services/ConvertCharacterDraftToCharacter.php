@@ -160,7 +160,7 @@ class ConvertCharacterDraftToCharacter
             $worldCharacter->tenant_id = $tenantId;
             $worldCharacter->name = $nome;
             $worldCharacter->one_liner = $tipo === 'animale'
-                ? trim(($item['specie'] ?? '') . (($item['razza'] ?? '') !== '' ? ' (' . $item['razza'] . ')' : ''))
+                ? $this->buildAnimalOneLiner($item)
                 : ($item['descrizione'] ?? null);
             if (! $worldCharacter->exists) {
                 $worldCharacter->slug = $this->uniqueSlug($nome);
@@ -195,6 +195,16 @@ class ConvertCharacterDraftToCharacter
                 );
             }
 
+            // Un animale dichiarato da $character si presume conosciuto anche dal resto del suo
+            // nucleo familiare stretto (genitori/figli diretti) — così anche loro possono
+            // nominarlo nei propri contenuti ed essere fotografati insieme a lui (Fase 3), non
+            // solo chi lo ha dichiarato per primo. Solo per gli animali: una persona secondaria
+            // (es. un fidanzato) resta una relazione propria di chi l'ha dichiarata, non si
+            // propaga da sola al resto della famiglia.
+            if ($tipo === 'animale') {
+                $this->propagateAnimalToHousehold($character, $worldCharacter, $nome, $relationshipType);
+            }
+
             $item['character_id'] = $worldCharacter->id;
             $updated[] = $item;
         }
@@ -203,6 +213,53 @@ class ConvertCharacterDraftToCharacter
             $draft->world_characters = $updated;
             $draft->save();
         }
+    }
+
+    private function buildAnimalOneLiner(array $item): ?string
+    {
+        $specie = trim($item['specie'] ?? '');
+        $razza = trim($item['razza'] ?? '');
+        $carattere = trim($item['carattere'] ?? '');
+
+        $base = $specie;
+        if ($razza !== '') {
+            $base .= " ({$razza})";
+        }
+        if ($carattere !== '') {
+            $base = $base !== '' ? "{$base} — {$carattere}" : $carattere;
+        }
+
+        return $base !== '' ? $base : null;
+    }
+
+    private function propagateAnimalToHousehold(Character $owner, Character $animal, string $name, ?string $type): void
+    {
+        foreach ($this->householdMembersOf($owner) as $member) {
+            CharacterRelationship::updateOrCreate(
+                ['character_id' => $member->id, 'related_character_id' => $animal->id],
+                ['name' => $name, 'type' => $type]
+            );
+        }
+    }
+
+    /**
+     * Genitori e figli diretti di $character secondo CharacterKinship, indipendentemente da quale
+     * dei due lati ha registrato la parentela (dalla pagina del figlio con figlio/figlia, o dalla
+     * pagina del genitore con genitore) — un solo passo di famiglia, non l'intero albero.
+     */
+    private function householdMembersOf(Character $character): \Illuminate\Support\Collection
+    {
+        $ids = CharacterKinship::where('character_id', $character->id)
+            ->whereIn('relationship_type', ['figlio', 'figlia', 'genitore'])
+            ->pluck('related_character_id')
+            ->merge(
+                CharacterKinship::where('related_character_id', $character->id)
+                    ->whereIn('relationship_type', ['figlio', 'figlia', 'genitore'])
+                    ->pluck('character_id')
+            )
+            ->unique();
+
+        return Character::whereIn('id', $ids)->get();
     }
 
     private function uniqueSlug(string $name): string

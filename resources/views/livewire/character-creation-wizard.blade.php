@@ -374,7 +374,7 @@
         <div class="screen visible" x-data="{
             worldCharacters: @js($worldCharacters),
             newTipo: 'persona', newNome: '', newRelazione: '', newDescrizione: '',
-            newSpecie: '', newRazza: '', newAspetto: '',
+            newSpecie: '', newRazza: '', newAspetto: '', newCarattere: '',
             addWorldCharacter() {
                 if (!this.newNome.trim()) return;
                 if (this.newTipo === 'persona') {
@@ -382,10 +382,10 @@
                     this.worldCharacters.push({ tipo: 'persona', nome: this.newNome.trim(), relazione: this.newRelazione, descrizione: this.newDescrizione.trim() });
                 } else {
                     if (!this.newSpecie.trim()) return;
-                    this.worldCharacters.push({ tipo: 'animale', nome: this.newNome.trim(), specie: this.newSpecie.trim(), razza: this.newRazza.trim(), aspetto: this.newAspetto.trim() });
+                    this.worldCharacters.push({ tipo: 'animale', nome: this.newNome.trim(), specie: this.newSpecie.trim(), razza: this.newRazza.trim(), aspetto: this.newAspetto.trim(), carattere: this.newCarattere.trim() });
                 }
                 this.newNome = ''; this.newRelazione = ''; this.newDescrizione = '';
-                this.newSpecie = ''; this.newRazza = ''; this.newAspetto = '';
+                this.newSpecie = ''; this.newRazza = ''; this.newAspetto = ''; this.newCarattere = '';
             },
         }">
             <div class="card">
@@ -394,8 +394,9 @@
                 <p class="subtitle">Marito/moglie, figli, animali domestici — le persone e gli animali che fanno già parte della sua vita. Facoltativo, ma rende i contenuti molto più credibili: diventano personaggi a sé (per ora "dietro le quinte", mai pubblicano da soli) invece di restare solo un nome citato nei post.</p>
 
                 <template x-for="(persona_o_animale, idx) in worldCharacters" :key="idx">
-                    <div class="chip" style="margin-bottom:8px; display:flex; align-items:center; gap:8px; width:100%;" x-on:click="worldCharacters.splice(idx, 1)">
+                    <div class="chip" style="margin-bottom:8px; display:flex; align-items:center; justify-content:space-between; gap:8px; width:100%; cursor:default;">
                         <span x-text="(persona_o_animale.tipo === 'animale' ? '🐾 ' : '🧑 ') + persona_o_animale.nome + ' · ' + (persona_o_animale.tipo === 'animale' ? persona_o_animale.specie : persona_o_animale.relazione)"></span>
+                        <span x-on:click="worldCharacters.splice(idx, 1)" style="cursor:pointer; color:#F58E4E; font-weight:700; flex-shrink:0;">Rimuovi ✕</span>
                     </div>
                 </template>
 
@@ -404,9 +405,9 @@
                     <div class="chip" :class="{ selected: newTipo === 'animale' }" x-on:click="newTipo = 'animale'">🐾 Animale</div>
                 </div>
 
-                <div x-show="newTipo === 'persona'" style="display:flex; gap:8px; flex-wrap:wrap;">
-                    <input type="text" class="text-input" style="width:160px;" x-model="newNome" placeholder="Nome">
-                    <select class="text-input" style="width:160px;" x-model="newRelazione">
+                <div x-show="newTipo === 'persona'" style="display:flex; gap:14px; flex-wrap:wrap;">
+                    <input type="text" class="text-input" style="flex:1 1 240px;" x-model="newNome" placeholder="Nome">
+                    <select class="text-input" style="flex:1 1 200px;" x-model="newRelazione">
                         <option value="">Tipo di relazione</option>
                         <option value="marito">Marito</option>
                         <option value="moglie">Moglie</option>
@@ -420,15 +421,16 @@
                         <option value="collega">Collega</option>
                         <option value="altro">Altro</option>
                     </select>
-                    <input type="text" class="text-input" style="width:220px;" x-model="newDescrizione" placeholder="Una descrizione libera (facoltativo)">
+                    <input type="text" class="text-input" style="flex:1 1 100%;" x-model="newDescrizione" placeholder="Carattere / descrizione libera (facoltativo)">
                     <button type="button" class="chip" x-on:click="addWorldCharacter">+ Aggiungi</button>
                 </div>
 
-                <div x-show="newTipo === 'animale'" style="display:none; gap:8px; flex-wrap:wrap;">
-                    <input type="text" class="text-input" style="width:140px;" x-model="newNome" placeholder="Nome">
-                    <input type="text" class="text-input" style="width:140px;" x-model="newSpecie" placeholder="Specie (es. cane, gatto)">
-                    <input type="text" class="text-input" style="width:140px;" x-model="newRazza" placeholder="Razza (facoltativo)">
-                    <input type="text" class="text-input" style="width:220px;" x-model="newAspetto" placeholder="Aspetto fisico breve (facoltativo)">
+                <div x-show="newTipo === 'animale'" style="display:none; gap:14px; flex-wrap:wrap;">
+                    <input type="text" class="text-input" style="flex:1 1 240px;" x-model="newNome" placeholder="Nome">
+                    <input type="text" class="text-input" style="flex:1 1 200px;" x-model="newSpecie" placeholder="Specie (es. cane, gatto)">
+                    <input type="text" class="text-input" style="flex:1 1 200px;" x-model="newRazza" placeholder="Razza (facoltativo)">
+                    <input type="text" class="text-input" style="flex:1 1 100%;" x-model="newAspetto" placeholder="Aspetto fisico breve (facoltativo)">
+                    <input type="text" class="text-input" style="flex:1 1 100%;" x-model="newCarattere" placeholder="Carattere (es. giocherellone, pigro, sempre affamato — facoltativo)">
                     <button type="button" class="chip" x-on:click="addWorldCharacter">+ Aggiungi</button>
                 </div>
 

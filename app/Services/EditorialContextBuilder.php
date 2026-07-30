@@ -135,6 +135,7 @@ class EditorialContextBuilder
     private function buildRelevantRelationships(Character $character): array
     {
         return $character->relationships()
+            ->with('relatedCharacter.visualProfile')
             ->orderByDesc('last_interaction_at')
             ->take(self::MAX_RELATIONSHIPS)
             ->get()
@@ -149,8 +150,32 @@ class EditorialContextBuilder
                 // insieme al personaggio principale nella stessa immagine — il resto resta
                 // puramente narrativo, come sempre.
                 'puo_comparire_in_foto' => (bool) $r->related_character_id,
+                'aspetto_visivo' => $this->buildRelatedVisualSummary($r->relatedCharacter),
             ])
             ->all();
+    }
+
+    /**
+     * Bug reale osservato (Fase 3, mondo narrativo): quando una relazione compare fisicamente
+     * insieme al personaggio principale, prompt_immagine si affidava SOLO alla foto di
+     * riferimento passata al modello di generazione multi-soggetto, senza alcun rinforzo
+     * testuale — il modello non sempre preserva fedelmente ogni dettaglio della reference (es.
+     * lunghezza capelli). Un breve riassunto testuale del profilo visivo di chi è collegato
+     * (se esiste) dà al cervello editoriale qualcosa da scrivere esplicitamente in
+     * prompt_immagine, a rinforzo della foto.
+     */
+    private function buildRelatedVisualSummary(?Character $related): ?string
+    {
+        if (! $related || ! $related->visualProfile) {
+            return null;
+        }
+
+        $parts = array_filter([
+            $related->visualProfile->hair_description,
+            $related->visualProfile->face_description,
+        ]);
+
+        return $parts ? implode(' ', $parts) : null;
     }
 
     /**

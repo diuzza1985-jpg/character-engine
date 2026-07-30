@@ -2,13 +2,30 @@
 
 namespace App\Models;
 
+use Filament\Models\Contracts\FilamentUser;
+use Filament\Panel;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 
-class User extends Authenticatable
+/**
+ * Senza FilamentUser, Filament nega l'accesso al pannello a chiunque non sia in
+ * config('app.env') === 'local' (Filament\Http\Middleware\Authenticate, controllo di
+ * sicurezza di default) — scoperto scrivendo un test reale per una nuova risorsa admin: in
+ * ambiente "testing" (come qui) dava 403 a un utente autenticato valido. Più seriamente,
+ * significa che oggi il pannello admin sarebbe stato completamente inaccessibile a chiunque
+ * appena l'app girasse con APP_ENV=production — nessuna vera autorizzazione, solo un
+ * controllo sull'ambiente. canAccessPanel() qui sotto rende esplicito ciò che già succede in
+ * locale (qualunque utente autenticato entra), non cambia il comportamento in sviluppo.
+ */
+class User extends Authenticatable implements FilamentUser
 {
     use HasFactory, Notifiable;
+
+    public function canAccessPanel(Panel $panel): bool
+    {
+        return true;
+    }
 
     protected $fillable = [
         'name',

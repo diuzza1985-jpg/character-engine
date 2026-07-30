@@ -132,7 +132,15 @@
     </div>
 
     <div x-show="tab === 'parentele'" style="display:none;">
-        @php($allKinships = $kinships->map(fn($k) => ['nome' => $k->relatedCharacter->name, 'tipo' => $k->relationship_type, 'id' => $k->id, 'mine' => true])->concat($kinshipsAsRelated->map(fn($k) => ['nome' => $k->character->name, 'tipo' => $k->inverseLabel(), 'id' => $k->id, 'mine' => false])))
+        {{--
+            Convenzione reale (verificata sui dati esistenti, non assunta): relationship_type
+            descrive cosa È character_id, non cosa è related_character_id — chi compila il form
+            lo fa dalla propria pagina pensando "io sono ___" (es. da Fernando: "io sono marito"),
+            non "lui/lei è ___ per me". Sulla PROPRIA pagina (kinships, "mine") va quindi mostrata
+            l'etichetta invertita (chi è l'ALTRO per me), sulla pagina del personaggio collegato
+            (kinshipsAsRelated) va mostrato il tipo diretto (cosa è QUESTO personaggio, cioè noi).
+        --}}
+        @php($allKinships = $kinships->map(fn($k) => ['nome' => $k->relatedCharacter->name, 'tipo' => $k->inverseLabel(), 'id' => $k->id, 'mine' => true])->concat($kinshipsAsRelated->map(fn($k) => ['nome' => $k->character->name, 'tipo' => $k->relationship_type, 'id' => $k->id, 'mine' => false])))
         @if($allKinships->isEmpty())
             <div class="generic-pane">Nessuna parentela ancora collegata.</div>
         @else

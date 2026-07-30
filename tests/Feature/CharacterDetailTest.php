@@ -91,9 +91,42 @@ class CharacterDetailTest extends TestCase
 
         $this->assertSame(1, CharacterKinship::where('character_id', $sofia->id)->where('related_character_id', $fernando->id)->count());
 
-        // Vista da Sofia: vede "marito" (diretto). Vista da Fernando: vede "moglie" (inverso).
-        $this->actingAs($user)->get(route('character.show', $sofia))->assertSee('marito');
-        $this->actingAs($user)->get(route('character.show', $fernando))->assertSee('moglie');
+        // Convenzione reale (verificata sui dati di produzione, non assunta): chi compila il
+        // form dalla propria pagina pensa "io sono ___" — qui Sofia ha dichiarato "io sono
+        // marito" (dato di test, non biologicamente accurato, serve solo a verificare la
+        // meccanica). Sulla PROPRIA pagina (Sofia) va quindi mostrata l'etichetta invertita
+        // ("moglie", ciò che Fernando è per lei); sulla pagina del personaggio collegato
+        // (Fernando) va mostrato il tipo diretto ("marito", ciò che Sofia ha dichiarato di essere).
+        $this->actingAs($user)->get(route('character.show', $sofia))->assertSee('moglie');
+        $this->actingAs($user)->get(route('character.show', $fernando))->assertSee('marito');
+    }
+
+    /**
+     * Senza questo, una parentela tra due Character già esistenti (non tramite il "mondo" di
+     * qualcuno) restava invisibile al cervello editoriale di entrambi — non poteva mai essere
+     * nominata nei contenuti né scelta per comparire insieme in foto (Fase 3).
+     */
+    public function test_adding_a_kinship_also_creates_a_structured_relationship_on_both_sides(): void
+    {
+        [$tenant, $user, $sofia] = $this->makeTenantUserCharacter();
+        $sara = Character::create(['tenant_id' => $tenant->id, 'name' => 'Sara Test', 'slug' => 'sara-test-' . uniqid(), 'status' => 'draft']);
+
+        // Dalla pagina di Sofia: "Sara [related] è mia figlia" (io, Sofia, sono il genitore).
+        Livewire::actingAs($user)->test(CharacterDetail::class, ['character' => $sofia])
+            ->set('newRelatedCharacterId', (string) $sara->id)
+            ->set('newRelationshipType', 'genitore')
+            ->call('addKinship')
+            ->assertHasNoErrors();
+
+        // Da Sofia: Sara è sua figlia (inverso di "genitore").
+        $fromSofia = CharacterRelationship::where('character_id', $sofia->id)->where('related_character_id', $sara->id)->first();
+        $this->assertNotNull($fromSofia);
+        $this->assertSame('figlio_a', $fromSofia->type);
+
+        // Da Sara: Sofia è il suo genitore (diretto, ciò che Sofia ha dichiarato di essere).
+        $fromSara = CharacterRelationship::where('character_id', $sara->id)->where('related_character_id', $sofia->id)->first();
+        $this->assertNotNull($fromSara);
+        $this->assertSame('genitore', $fromSara->type);
     }
 
     public function test_removing_a_kinship(): void

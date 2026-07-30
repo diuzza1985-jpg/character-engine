@@ -168,6 +168,25 @@ class CharacterDetail extends Component
             ['relationship_type' => $this->newRelationshipType, 'notes' => $this->newRelationshipNotes ?: null]
         );
 
+        // Senza questo, una parentela creata qui (due Character già esistenti, collegati dopo,
+        // non tramite il "mondo" di qualcuno) restava visibile solo nella tab Parentele — invisibile
+        // al cervello editoriale di entrambi (relazioni_rilevanti) e quindi mai utilizzabile per
+        // nominarli nei contenuti o comparire insieme in foto (Fase 3), a differenza di chi viene
+        // collegato tramite syncWorldCharacters(). Le due tabelle hanno convenzioni diverse per
+        // 'type', verificato sui dati reali (non assunto): CharacterKinship.relationship_type
+        // descrive cosa È character_id ("io sono ___", come lo compila chi usa il form dalla
+        // propria pagina); CharacterRelationship.type descrive cosa È related_character_id
+        // rispetto a character_id — va quindi invertito da un lato e lasciato diretto dall'altro.
+        $inverseType = CharacterKinship::INVERSE_LABELS[$this->newRelationshipType] ?? $this->newRelationshipType;
+        CharacterRelationship::updateOrCreate(
+            ['character_id' => $this->character->id, 'related_character_id' => $related->id],
+            ['name' => $related->name, 'type' => $inverseType]
+        );
+        CharacterRelationship::updateOrCreate(
+            ['character_id' => $related->id, 'related_character_id' => $this->character->id],
+            ['name' => $this->character->name, 'type' => $this->newRelationshipType]
+        );
+
         // Se questa parentela è genitore/figlio (l'unica considerata "stesso nucleo familiare",
         // vedi HouseholdAnimalSync::householdMembersOf), un animale già dichiarato da uno dei due
         // deve raggiungere subito anche l'altro — non solo alla prossima riapertura del

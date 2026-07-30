@@ -114,6 +114,16 @@ Il limite noto (11.16): `fal-ai/ideogram/character` usa solo la prima immagine d
 
 Verificato in tinker: creato un asset di test temporaneo per Fernando, risolto correttamente da `resolveSecondaryReference()` (id validi risolti, id inesistenti/null tornano `null` senza errori), rimosso a fine verifica. Suite 64/64 verde, nessuna stringa Sofia/Fernando nel diff di codice.
 
+### 3.1 Verifica visiva reale — primo caso, bug trovato e corretto (30 luglio 2026)
+
+**Verificato per la prima volta con un asset reale** (non più uno stand-in): generato e **pubblicato davvero** un post di Sofia con Sara (Fase 2.4), `personaggio_coinvolto_id` valorizzato dal cervello editoriale di sua iniziativa. Risultato: **incoerenza visiva reale** — sia la foto di riferimento caricata di Sara sia il suo `character_visual_profile` la descrivono con capelli lunghi, ma nell'immagine generata i capelli sono corti.
+
+**Causa verificata (commit `0fbc591`)**: `prompt_immagine` per la persona coinvolta si affidava SOLO alla foto di riferimento passata a `fal-ai/nano-banana-pro/edit`, senza alcun rinforzo testuale — a differenza del personaggio principale, il cui intero profilo visivo viene già scritto esplicitamente nel prompt. Il modello non preserva sempre fedelmente ogni dettaglio della reference (limite noto del modello, non risolvibile lato nostro).
+
+**Fix**: `EditorialContextBuilder::buildRelevantRelationships()` include ora un `aspetto_visivo` sintetico (hair_description + face_description) per ogni relazione collegata a un `Character` reale con un profilo visivo — `null` se non esiste (nessun caso speciale). Il prompt lo mostra nella sezione RELAZIONI RILEVANTI e istruisce esplicitamente il cervello editoriale a includerlo in `prompt_immagine` quando valorizza `personaggio_coinvolto_id`, a rinforzo della foto. Verificato con dati reali che il prompt ora include davvero "Castano, Lunghi, Lisci..." per Sara. 3 nuovi test Feature, suite 86/86 verde.
+
+**Non ancora rivalutato**: se questo rinforzo testuale basti da solo a risolvere il problema in pratica (dipende comunque da quanto il modello segue le istruzioni testuali oltre alla reference) — da osservare sui prossimi contenuti reali generati con una relazione coinvolta.
+
 ## 4. Asset caricati dall'utente (niente AI, niente crediti) + informativa legale — implementato (29 luglio 2026)
 
 Il meccanismo di upload esiste già lato admin (`AssetsRelationManager`, `FileUpload` reale su Storage, sez. 5 del project.md) — quello che mancava era: (a) esporlo anche al pannello utente finale, non solo all'admin, (b) una via che *non* passi da `FalImageService`/non scali crediti, (c) un flusso di consenso legale esplicito prima di permetterlo.

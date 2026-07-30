@@ -604,6 +604,12 @@ Piano completo in `character-engine-comparse-mondo-narrativo.md` (11.24 ne ripre
 - **Decisione presa durante l'implementazione**: per le persone con relazione valida, scritta anche una riga `CharacterKinship` (compare nella tab "Parentele" esistente) oltre alla `CharacterRelationship`. Il campo "foto opzionale" per queste voci è stato deliberatamente rimandato alla Fase 5 (consenso legale) invece di essere incluso ora.
 - Suite 64 test/296 assertion verde, nessuna stringa Sofia/Fernando nel diff (verificato).
 
+**Fase 2.1 — estensioni: propagazione in famiglia, campo carattere, fix bug rimozione — fatta, commit `4412e97` (30 luglio 2026)** (dettaglio in `character-engine-comparse-mondo-narrativo.md` sez. 2.1, richiesta dal caso reale di Sara figlia di Sofia e Fernando):
+- Fix bug reale: l'intera chip di una voce già aggiunta nello step "mondo" era cliccabile per rimuoverla senza conferma né icona dedicata — sostituito con un controllo esplicito "Rimuovi ✕". Input allargati per entrambi i rami.
+- Nuovo campo facoltativo `carattere` per il ramo animale, confluisce nel `one_liner` generato.
+- Nuova propagazione generica: un animale dichiarato da un personaggio viene collegato anche ai suoi genitori/figli diretti (`CharacterKinship`, in entrambe le direzioni di registrazione) — così possono nominarlo nei propri contenuti ed essere fotografati insieme a lui (Fase 3). Solo per gli animali, non per le persone secondarie. Limite noto: la propagazione scatta solo alla (ri)sincronizzazione del questionario, non retroattivamente se la parentela viene aggiunta dopo.
+- 3 nuovi test Feature reali, suite completa 75/75 verde.
+
 **Fase 3 — generazione immagine multi-soggetto — fatta, commit `5b9e202` (29 luglio 2026)**:
 - `FalImageService::generateWithMultipleSubjects()` usa `fal-ai/nano-banana-pro/edit` (non ideogram-character, che userebbe solo la prima reference). Schema reale verificato via openapi.json della queue fal: `image_urls` (non `reference_image_urls`), nessun parametro `negative_prompt` (le esclusioni vanno scritte dentro il prompt stesso), nessun `seed` mai restituito in risposta.
 - Nuovo campo dello schema del cervello editoriale, `personaggio_coinvolto_id`: valorizzabile solo con l'id di una relazione marcata `puo_comparire_in_foto` (vero solo se ha `related_character_id`) — stesso principio già in uso per `storyline_id`, mai un id inventato. Nuova guardia in `validate()`: incompatibile con i formati che non generano mai una foto del personaggio principale (`oggetto`/`tema_caldo`/`conversazione`).

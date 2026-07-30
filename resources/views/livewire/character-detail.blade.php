@@ -171,7 +171,7 @@
             <div style="display:flex; gap:12px; flex-wrap:wrap; margin-top:8px;">
                 @foreach($assets as $asset)
                     <div style="width:120px;">
-                        <img src="{{ \Illuminate\Support\Facades\Storage::disk('local')->url($asset->file_path) }}" alt="{{ $asset->type }}" style="width:120px; height:120px; object-fit:cover; border-radius:8px;">
+                        <img src="{{ \Illuminate\Support\Facades\Storage::disk('local')->temporaryUrl($asset->file_path, now()->addMinutes(30)) }}" alt="{{ $asset->type }}" style="width:120px; height:120px; object-fit:cover; border-radius:8px;">
                         <p class="field-hint" style="margin:4px 0 0;">{{ $asset->type }}</p>
                         <p class="field-hint" style="margin:0; opacity:.7;">{{ $asset->source === 'user_uploaded' ? 'Caricata da te' : 'Generata AI' }}</p>
                     </div>

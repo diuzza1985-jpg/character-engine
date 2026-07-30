@@ -45,6 +45,43 @@ class CharacterAssetUploadTest extends TestCase
         $this->assertNotNull($consent->accepted_at);
     }
 
+    /**
+     * Bug reale in produzione: il tab "Assets & Immagini" mostrava le foto con
+     * Storage::disk('local')->url(), che per questo disco (visibility non 'public', 'serve' =>
+     * true in config/filesystems.php) genera un URL SENZA firma — la route storage/{path} di
+     * Laravel la rifiuta sempre con 403 in quel caso (verificato leggendo ServeFile del
+     * framework). Serve temporaryUrl(), che firma l'URL. Niente Storage::fake() qui apposta:
+     * deve passare dalla vera route storage/{path} per riprodurre esattamente il bug reale,
+     * non un disco fittizio che la aggira del tutto.
+     */
+    public function test_the_asset_thumbnail_url_is_actually_fetchable_not_just_present(): void
+    {
+        $tenant = Tenant::create(['name' => 'Fetchable Test', 'email' => 'fetchable-test@example.com', 'status' => 'trial']);
+        $user = User::factory()->create(['tenant_id' => $tenant->id, 'role' => 'owner']);
+        $character = Character::create(['tenant_id' => $tenant->id, 'name' => 'Comparsa', 'one_liner' => 'Test', 'slug' => 'comparsa-' . uniqid(), 'status' => 'draft']);
+
+        Livewire::actingAs($user)->test(CharacterDetail::class, ['character' => $character])
+            ->set('newAssetType', 'face')
+            ->set('newAssetFile', UploadedFile::fake()->image('foto.jpg'))
+            ->set('newAssetConsent', true)
+            ->call('uploadAsset');
+
+        $asset = CharacterAsset::where('character_id', $character->id)->first();
+
+        try {
+            $html = Livewire::actingAs($user)->test(CharacterDetail::class, ['character' => $character])->html();
+            preg_match('/<img src="([^"]+)" alt="face"/', $html, $matches);
+            $this->assertNotEmpty($matches, 'nessun tag <img> trovato per l\'asset appena caricato');
+
+            $relative = parse_url(html_entity_decode($matches[1]), PHP_URL_PATH) . '?' . parse_url(html_entity_decode($matches[1]), PHP_URL_QUERY);
+            $this->assertStringContainsString('signature=', $relative, 'l\'URL renderizzato deve essere firmato (temporaryUrl), non un url() nudo');
+
+            $this->get($relative)->assertOk();
+        } finally {
+            Storage::disk('local')->delete($asset->file_path);
+        }
+    }
+
     public function test_uploading_without_accepting_consent_is_rejected_and_creates_nothing(): void
     {
         Storage::fake('local');

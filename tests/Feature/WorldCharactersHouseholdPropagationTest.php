@@ -90,6 +90,40 @@ class WorldCharactersHouseholdPropagationTest extends TestCase
         $this->assertNull(CharacterRelationship::where('character_id', $parent->id)->where('related_character_id', $friend->id)->first(), 'una persona secondaria non deve propagarsi al resto della famiglia');
     }
 
+    /**
+     * Vale per qualunque personaggio creato con questionario, non solo per il proprietario: se
+     * una persona del "mondo" venisse mai attivata come personaggio a sé (nessun ostacolo
+     * strutturale, stesso principio di Fase 1), deve già sapere chi l'ha dichiarata — non solo
+     * il contrario.
+     */
+    public function test_a_secondary_person_also_gets_a_reciprocal_relationship_back_to_the_owner(): void
+    {
+        $tenant = Tenant::create(['name' => 'Reciprocal Test', 'email' => 'reciprocal-test@example.com', 'status' => 'trial']);
+        $sara = Character::create(['tenant_id' => $tenant->id, 'name' => 'Sara', 'slug' => 'sara-' . uniqid(), 'status' => 'draft']);
+
+        $draft = CharacterDraft::create([
+            'session_token' => 'reciprocal-' . uniqid(),
+            'tenant_id' => $tenant->id,
+            'character_id' => $sara->id,
+            'name' => 'Sara',
+            'goal' => 'Intrattenere',
+            'niche' => ['Tecnologia'],
+            'world_characters' => [
+                ['tipo' => 'persona', 'nome' => 'Marco', 'relazione' => 'marito', 'descrizione' => 'Il suo fidanzato'],
+            ],
+        ]);
+
+        app(ConvertCharacterDraftToCharacter::class)->convert($draft, $tenant->id);
+        $marco = Character::where('tenant_id', $tenant->id)->where('name', 'Marco')->first();
+
+        $fromSara = CharacterRelationship::where('character_id', $sara->id)->where('related_character_id', $marco->id)->first();
+        $this->assertSame('marito', $fromSara->type);
+
+        $fromMarco = CharacterRelationship::where('character_id', $marco->id)->where('related_character_id', $sara->id)->first();
+        $this->assertNotNull($fromMarco, 'Marco deve avere una relazione di ritorno verso Sara');
+        $this->assertSame('moglie', $fromMarco->type);
+    }
+
     public function test_reconverting_does_not_duplicate_propagated_relationships(): void
     {
         $tenant = Tenant::create(['name' => 'Idempotent Test', 'email' => 'idempotent-test@example.com', 'status' => 'trial']);

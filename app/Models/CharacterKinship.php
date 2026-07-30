@@ -47,6 +47,21 @@ class CharacterKinship extends Model
 
     public function inverseLabel(): string
     {
-        return self::INVERSE_LABELS[$this->relationship_type] ?? $this->relationship_type;
+        return self::inverseLabelFor($this->relationship_type);
+    }
+
+    /**
+     * Versione statica di inverseLabel(), riusabile senza un'istanza — serve ovunque si debba
+     * tradurre un tipo di parentela dichiarato da un lato ("io sono ___") nell'etichetta corretta
+     * per l'altro lato, non solo per la tab Parentele (es. ConvertCharacterDraftToCharacter, che
+     * crea la relazione reciproca per le persone del "mondo" di un personaggio).
+     */
+    public static function inverseLabelFor(?string $type): ?string
+    {
+        if ($type === null) {
+            return null;
+        }
+
+        return self::INVERSE_LABELS[$type] ?? $type;
     }
 }

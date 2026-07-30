@@ -196,6 +196,17 @@ class ConvertCharacterDraftToCharacter
                     ['character_id' => $character->id, 'related_character_id' => $worldCharacter->id],
                     ['relationship_type' => $item['relazione']]
                 );
+
+                // Reciproca: senza questa riga, se questa persona del "mondo" di $character
+                // venisse mai attivata come personaggio a sé (stesso principio di Fase 1, nessun
+                // ostacolo strutturale), il suo cervello editoriale non saprebbe nulla di
+                // $character — vale per qualunque personaggio creato con questionario, non solo
+                // per chi è stato collegato qui per primo (stesso principio del bridge in
+                // CharacterDetail::addKinship(), Fase 2.4).
+                CharacterRelationship::updateOrCreate(
+                    ['character_id' => $worldCharacter->id, 'related_character_id' => $character->id],
+                    ['name' => $character->name, 'type' => CharacterKinship::inverseLabelFor($item['relazione'])]
+                );
             }
 
             // Un animale dichiarato da $character si presume conosciuto anche dal resto del suo

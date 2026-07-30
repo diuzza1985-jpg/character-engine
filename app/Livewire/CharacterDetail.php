@@ -177,7 +177,7 @@ class CharacterDetail extends Component
         // descrive cosa È character_id ("io sono ___", come lo compila chi usa il form dalla
         // propria pagina); CharacterRelationship.type descrive cosa È related_character_id
         // rispetto a character_id — va quindi invertito da un lato e lasciato diretto dall'altro.
-        $inverseType = CharacterKinship::INVERSE_LABELS[$this->newRelationshipType] ?? $this->newRelationshipType;
+        $inverseType = CharacterKinship::inverseLabelFor($this->newRelationshipType);
         CharacterRelationship::updateOrCreate(
             ['character_id' => $this->character->id, 'related_character_id' => $related->id],
             ['name' => $related->name, 'type' => $inverseType]

@@ -55,7 +55,12 @@ class RegisterController extends Controller
             ->latest('created_at')
             ->first();
 
-        if ($draft) {
+        // 'name' è l'unica colonna NOT NULL su characters oltre a tenant_id/slug/status (verificato
+        // nella migration): una bozza che non l'ha ancora (sessione abbandonata prima dello step
+        // "identity") non è una bozza da completare, è solo un artefatto di sessione — provare
+        // comunque a convertirla fa fallire uniqueSlug(null) più a valle (stesso guardia di
+        // LoginController).
+        if ($draft && filled($draft->name)) {
             // dispatchSync, non dispatch(): nessuna chiamata esterna qui dentro (solo scritture
             // DB locali), quindi non serve un vero worker di coda per avere il personaggio
             // pronto subito al primo caricamento del pannello post-registrazione.

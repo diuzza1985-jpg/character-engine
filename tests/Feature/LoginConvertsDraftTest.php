@@ -104,6 +104,37 @@ class LoginConvertsDraftTest extends TestCase
         $this->assertSame(1, $existingTenant->characters()->count());
     }
 
+    public function test_logging_in_with_an_abandoned_nameless_draft_does_not_crash(): void
+    {
+        // Bug reale osservato in produzione: un visitatore apre il wizard (la sessione ottiene un
+        // character_draft_token) ma si ferma prima dello step "identity" — nessuna bozza persistita
+        // con un nome. Se poi va su /accedi e accede a un account già esistente senza nessun
+        // legame con quella bozza, LoginController la trovava comunque (stesso session_token) e
+        // provava a convertirla, facendo esplodere uniqueSlug(null) — un utente esistente non deve
+        // mai poter rompere il login per via di un artefatto di sessione altrui.
+        Livewire::test(CharacterCreationWizard::class)
+            ->call('nextStep', 'why', 'identity', ['goal' => 'Educare', 'niche' => ['Salute', 'Sport']]);
+
+        $draft = CharacterDraft::first();
+        $this->assertNull($draft->name);
+        $this->assertSame('in_corso', $draft->status);
+
+        $tenant = Tenant::create(['name' => 'Account Esistente', 'email' => 'account-esistente@example.com', 'status' => 'trial']);
+        $user = User::factory()->create(['tenant_id' => $tenant->id, 'role' => 'owner', 'password' => 'password123']);
+
+        $response = $this->post(route('login.store'), [
+            'email' => $user->email,
+            'password' => 'password123',
+        ]);
+
+        $response->assertRedirect(route('character.panel'));
+        $this->assertAuthenticatedAs($user);
+
+        $draft->refresh();
+        $this->assertSame('in_corso', $draft->status, 'la bozza senza nome non va convertita, resta così com\'era');
+        $this->assertSame(0, $tenant->characters()->count());
+    }
+
     public function test_login_rejects_wrong_credentials(): void
     {
         $user = User::factory()->create(['password' => 'password123']);

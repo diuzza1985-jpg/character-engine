@@ -43,7 +43,12 @@ class LoginController extends Controller
             ->latest('created_at')
             ->first();
 
-        if ($draft) {
+        // 'name' è l'unica colonna NOT NULL su characters oltre a tenant_id/slug/status (verificato
+        // nella migration): una bozza che non l'ha ancora (sessione abbandonata prima dello step
+        // "identity", es. un visitatore che poi si limita a fare login su un account già esistente
+        // non collegato a quella bozza) non è una bozza da completare, è solo un artefatto di
+        // sessione — provare comunque a convertirla fa fallire uniqueSlug(null) più a valle.
+        if ($draft && filled($draft->name)) {
             $tenant = $request->user()->resolveOrCreateTenant();
             ConvertCharacterDraftJob::dispatchSync($draft->id, $tenant->id);
             session()->forget('save_requires_auth');

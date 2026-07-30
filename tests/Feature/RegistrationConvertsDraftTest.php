@@ -97,6 +97,33 @@ class RegistrationConvertsDraftTest extends TestCase
         $this->assertGuest();
     }
 
+    public function test_registration_with_an_abandoned_nameless_draft_does_not_crash(): void
+    {
+        // Stesso bug del login (LoginConvertsDraftTest): una bozza abbandonata prima dello step
+        // "identity" non ha ancora un nome — registrarsi non deve provare a convertirla.
+        Livewire::test(CharacterCreationWizard::class)
+            ->call('nextStep', 'why', 'identity', ['goal' => 'Educare', 'niche' => ['Salute', 'Sport']]);
+
+        $draft = CharacterDraft::first();
+        $this->assertNull($draft->name);
+
+        $response = $this->post(route('register.store'), [
+            'name' => 'Registrato Senza Bozza Completa',
+            'email' => 'registrato-senza-bozza@example.com',
+            'password' => 'password123',
+            'password_confirmation' => 'password123',
+        ]);
+
+        $response->assertRedirect(route('character.panel'));
+
+        $user = User::where('email', 'registrato-senza-bozza@example.com')->first();
+        $this->assertNotNull($user);
+
+        $draft->refresh();
+        $this->assertSame('in_corso', $draft->status, 'la bozza senza nome non va convertita, resta così com\'era');
+        $this->assertSame(0, $user->tenant->characters()->count());
+    }
+
     public function test_registration_without_a_prior_draft_still_creates_the_account(): void
     {
         $response = $this->post(route('register.store'), [

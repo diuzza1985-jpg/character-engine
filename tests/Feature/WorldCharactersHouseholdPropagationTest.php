@@ -2,13 +2,16 @@
 
 namespace Tests\Feature;
 
+use App\Livewire\CharacterDetail;
 use App\Models\Character;
 use App\Models\CharacterDraft;
 use App\Models\CharacterKinship;
 use App\Models\CharacterRelationship;
 use App\Models\Tenant;
+use App\Models\User;
 use App\Services\ConvertCharacterDraftToCharacter;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
+use Livewire\Livewire;
 use Tests\TestCase;
 
 class WorldCharactersHouseholdPropagationTest extends TestCase
@@ -113,5 +116,46 @@ class WorldCharactersHouseholdPropagationTest extends TestCase
 
         $animal = Character::where('tenant_id', $tenant->id)->where('name', 'Bau')->first();
         $this->assertSame(1, CharacterRelationship::where('character_id', $parent->id)->where('related_character_id', $animal->id)->count());
+    }
+
+    /**
+     * Il limite segnalato dall'utente: prima serviva riaprire e risalvare il questionario perché
+     * un animale già dichiarato raggiungesse un parente collegato DOPO. Ora la propagazione parte
+     * subito da CharacterDetail::addKinship(), senza toccare il questionario.
+     */
+    public function test_adding_a_kinship_retroactively_propagates_already_declared_animals(): void
+    {
+        $tenant = Tenant::create(['name' => 'Retroactive Test', 'email' => 'retroactive-test@example.com', 'status' => 'trial']);
+        $user = User::factory()->create(['tenant_id' => $tenant->id, 'role' => 'owner']);
+        $parent = Character::create(['tenant_id' => $tenant->id, 'name' => 'Genitore', 'slug' => 'genitore-' . uniqid(), 'status' => 'active']);
+        $child = Character::create(['tenant_id' => $tenant->id, 'name' => 'Figlio', 'slug' => 'figlio-' . uniqid(), 'status' => 'draft']);
+
+        // Il figlio dichiara un animale PRIMA che esista qualunque parentela.
+        $draft = CharacterDraft::create([
+            'session_token' => 'retroactive-' . uniqid(),
+            'tenant_id' => $tenant->id,
+            'character_id' => $child->id,
+            'name' => 'Figlio',
+            'goal' => 'Intrattenere',
+            'niche' => ['Tecnologia'],
+            'world_characters' => [
+                ['tipo' => 'animale', 'nome' => 'Bau', 'specie' => 'cane'],
+            ],
+        ]);
+        app(ConvertCharacterDraftToCharacter::class)->convert($draft, $tenant->id);
+        $animal = Character::where('tenant_id', $tenant->id)->where('name', 'Bau')->first();
+
+        $this->assertNull(CharacterRelationship::where('character_id', $parent->id)->where('related_character_id', $animal->id)->first(), 'ancora nessuna parentela, nessuna propagazione attesa a questo punto');
+
+        // La parentela viene aggiunta DOPO, dalla pagina del genitore — nessun questionario riaperto.
+        Livewire::actingAs($user)->test(CharacterDetail::class, ['character' => $parent])
+            ->set('newRelatedCharacterId', (string) $child->id)
+            ->set('newRelationshipType', 'genitore')
+            ->call('addKinship');
+
+        $relationship = CharacterRelationship::where('character_id', $parent->id)->where('related_character_id', $animal->id)->first();
+        $this->assertNotNull($relationship, 'il genitore deve avere subito la relazione con Bau, senza riaprire il questionario');
+        $this->assertSame('Bau', $relationship->name);
+        $this->assertSame('cane', $relationship->type);
     }
 }

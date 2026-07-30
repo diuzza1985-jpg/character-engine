@@ -26,6 +26,8 @@ use Throwable;
  */
 class ConvertCharacterDraftToCharacter
 {
+    public function __construct(private HouseholdAnimalSync $householdAnimalSync) {}
+
     public function convert(CharacterDraft $draft, int $tenantId): Character
     {
         $character = $draft->character_id
@@ -159,6 +161,7 @@ class ConvertCharacterDraftToCharacter
 
             $worldCharacter->tenant_id = $tenantId;
             $worldCharacter->name = $nome;
+            $worldCharacter->kind = $tipo;
             $worldCharacter->one_liner = $tipo === 'animale'
                 ? $this->buildAnimalOneLiner($item)
                 : ($item['descrizione'] ?? null);
@@ -202,7 +205,7 @@ class ConvertCharacterDraftToCharacter
             // (es. un fidanzato) resta una relazione propria di chi l'ha dichiarata, non si
             // propaga da sola al resto della famiglia.
             if ($tipo === 'animale') {
-                $this->propagateAnimalToHousehold($character, $worldCharacter, $nome, $relationshipType);
+                $this->householdAnimalSync->propagateAnimal($character, $worldCharacter, $nome, $relationshipType);
             }
 
             $item['character_id'] = $worldCharacter->id;
@@ -230,36 +233,6 @@ class ConvertCharacterDraftToCharacter
         }
 
         return $base !== '' ? $base : null;
-    }
-
-    private function propagateAnimalToHousehold(Character $owner, Character $animal, string $name, ?string $type): void
-    {
-        foreach ($this->householdMembersOf($owner) as $member) {
-            CharacterRelationship::updateOrCreate(
-                ['character_id' => $member->id, 'related_character_id' => $animal->id],
-                ['name' => $name, 'type' => $type]
-            );
-        }
-    }
-
-    /**
-     * Genitori e figli diretti di $character secondo CharacterKinship, indipendentemente da quale
-     * dei due lati ha registrato la parentela (dalla pagina del figlio con figlio/figlia, o dalla
-     * pagina del genitore con genitore) — un solo passo di famiglia, non l'intero albero.
-     */
-    private function householdMembersOf(Character $character): \Illuminate\Support\Collection
-    {
-        $ids = CharacterKinship::where('character_id', $character->id)
-            ->whereIn('relationship_type', ['figlio', 'figlia', 'genitore'])
-            ->pluck('related_character_id')
-            ->merge(
-                CharacterKinship::where('related_character_id', $character->id)
-                    ->whereIn('relationship_type', ['figlio', 'figlia', 'genitore'])
-                    ->pluck('character_id')
-            )
-            ->unique();
-
-        return Character::whereIn('id', $ids)->get();
     }
 
     private function uniqueSlug(string $name): string

@@ -6,6 +6,7 @@ use App\Models\AssetUploadConsent;
 use App\Models\Character;
 use App\Models\CharacterAsset;
 use App\Models\CharacterKinship;
+use App\Services\HouseholdAnimalSync;
 use App\Support\AssetUploadConsentText;
 use Livewire\Component;
 use Livewire\WithFileUploads;
@@ -55,6 +56,12 @@ class CharacterDetail extends Component
             ['character_id' => $this->character->id, 'related_character_id' => $related->id],
             ['relationship_type' => $this->newRelationshipType, 'notes' => $this->newRelationshipNotes ?: null]
         );
+
+        // Se questa parentela è genitore/figlio (l'unica considerata "stesso nucleo familiare",
+        // vedi HouseholdAnimalSync::householdMembersOf), un animale già dichiarato da uno dei due
+        // deve raggiungere subito anche l'altro — non solo alla prossima riapertura del
+        // questionario (limite reale segnalato dall'utente, prima di questo aggancio).
+        app(HouseholdAnimalSync::class)->syncAllForCharacter($this->character);
 
         $this->reset(['newRelatedCharacterId', 'newRelationshipType', 'newRelationshipNotes']);
     }

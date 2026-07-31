@@ -27,6 +27,36 @@ services:
             - meilisearch
             - mailpit
             - selenium
+    scheduler:
+        # Riusa la stessa immagine già costruita per laravel.test (nessun secondo build, nessun
+        # secondo Dockerfile) ma con un comando diverso al posto di supervisord/artisan-serve:
+        # start-container (l'entrypoint dell'immagine Sail) esegue direttamente qualunque comando
+        # gli venga passato invece di avviare supervisord, se presente — verificato leggendolo
+        # nell'immagine reale prima di aggiungere questo servizio. 'schedule:work' è l'equivalente
+        # perpetuo di un vero cron (valuta routes/console.php ogni minuto), necessario perché
+        # nessun cron di sistema gira dentro questi container — senza questo servizio,
+        # character:plan-daily-post/character:publish-due-posts non sarebbero mai partiti da soli.
+        image: 'sail-8.5/app'
+        extra_hosts:
+            - 'host.docker.internal:host-gateway'
+        environment:
+            # A differenza di laravel.test sopra, questo servizio esegue davvero il ramo
+            # "gosu $WWWUSER" dell'entrypoint dell'immagine (start-container: solo se gli si
+            # passa un comando, come qui) — richiede WWWUSER valorizzato per davvero, non
+            # solo ereditato da ${WWWUSER} (che qui non arriva da nessuna parte quando si usa
+            # "docker compose" invece del wrapper ./vendor/bin/sail, che di solito lo calcola
+            # lui). Hardcoded all'UID reale dell'host (verificato con "id -u"), non un
+            # placeholder.
+            WWWUSER: '1000'
+            LARAVEL_SAIL: 1
+        volumes:
+            - '.:/var/www/html'
+        networks:
+            - sail
+        depends_on:
+            - mysql
+            - redis
+        command: php artisan schedule:work
     mysql:
         image: 'mysql:8.4'
         ports:

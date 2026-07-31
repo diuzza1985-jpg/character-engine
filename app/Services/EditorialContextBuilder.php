@@ -33,8 +33,10 @@ class EditorialContextBuilder
                 'slug' => $character->slug,
             ],
             'oggi' => [
-                'data' => now()->toDateString(),
-                'ora' => now()->format('H:i'),
+                // Ora italiana reale (TemporalContext::now()), non l'UTC del server — bug reale
+                // trovato e corretto insieme all'orario di pubblicazione (vedi TemporalContext).
+                'data' => TemporalContext::now()->toDateString(),
+                'ora' => TemporalContext::now()->format('H:i'),
                 'momento_del_giorno' => TemporalContext::timeOfDay(),
                 'stagione' => TemporalContext::season(),
             ],

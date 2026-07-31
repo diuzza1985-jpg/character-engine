@@ -1,6 +1,7 @@
 <?php
 namespace App\Services;
 use App\Models\Character;
+use App\Support\TemporalContext;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
 
@@ -13,7 +14,15 @@ use RuntimeException;
  */
 class EditorialBrainService
 {
-    private const REQUIRED_FIELDS = ['decisione', 'motivazione', 'formato', 'idea', 'topic', 'testo', 'testo_overlay', 'prompt_immagine', 'carousel_slides', 'messaggi_chat', 'messaggi_conversazione', 'storyline_da_aggiornare', 'personaggio_coinvolto_id', 'used_news'];
+    private const REQUIRED_FIELDS = ['decisione', 'motivazione', 'formato', 'idea', 'topic', 'testo', 'testo_overlay', 'prompt_immagine', 'carousel_slides', 'messaggi_chat', 'messaggi_conversazione', 'storyline_da_aggiornare', 'personaggio_coinvolto_id', 'orario_pubblicazione', 'used_news'];
+
+    /**
+     * Finestra oraria ragionevole entro cui il cervello editoriale può scegliere
+     * orario_pubblicazione — un post reale non esce nel cuore della notte. Usata sia nel prompt
+     * (istruzione testuale) sia in validate() (guardia reale, non solo un'indicazione ignorabile).
+     */
+    private const EARLIEST_PUBLISH_HOUR = 7;
+    private const LATEST_PUBLISH_HOUR = 22;
 
     private function buildResponseSchema(bool $forcePublish, bool $diarioDisponibile = true, bool $temaCaldoDisponibile = false): array
     {
@@ -73,6 +82,10 @@ class EditorialBrainService
                 // valorizzato SOLO quando la scena di oggi ritrae fisicamente quella persona/
                 // animale insieme al personaggio principale nella stessa immagine.
                 'personaggio_coinvolto_id' => ['type' => ['integer', 'null']],
+                // Automazione giornaliera: quando decidi di pubblicare, scegli tu stesso l'orario
+                // di oggi (formato "HH:MM", 24h) — vedi istruzione dedicata più sotto. Il
+                // contenuto (testo/prompt_immagine) deve essere coerente con l'orario scelto.
+                'orario_pubblicazione' => ['type' => ['string', 'null']],
                 'used_news' => ['type' => 'boolean'],
             ],
         ];
@@ -245,6 +258,27 @@ class EditorialBrainService
         if ($data['decisione'] === 'pubblica' && $data['personaggio_coinvolto_id'] !== null && in_array($data['formato'], ['oggetto', 'tema_caldo', 'conversazione'], true)) {
             throw new RuntimeException("personaggio_coinvolto_id non è compatibile con il formato \"{$data['formato']}\": nessuna foto del personaggio principale viene generata per questo formato.");
         }
+        // Automazione giornaliera: orario_pubblicazione deve essere un vero "HH:MM" futuro
+        // rispetto a adesso (ora italiana) e dentro una finestra ragionevole — mai lasciato al
+        // giudizio libero del modello senza controllo, stesso principio delle guardie sopra.
+        // "meglio fallire qui che" pianificare una pubblicazione nel passato o nel cuore della
+        // notte.
+        if ($data['decisione'] === 'pubblica') {
+            if (! preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', $data['orario_pubblicazione'] ?? '')) {
+                throw new RuntimeException('orario_pubblicazione mancante o in un formato non valido (atteso "HH:MM"): ' . json_encode($data['orario_pubblicazione'] ?? null));
+            }
+            $ora = (int) explode(':', $data['orario_pubblicazione'])[0];
+            if ($ora < self::EARLIEST_PUBLISH_HOUR || $ora > self::LATEST_PUBLISH_HOUR) {
+                throw new RuntimeException("orario_pubblicazione {$data['orario_pubblicazione']} fuori dalla finestra ragionevole (" . self::EARLIEST_PUBLISH_HOUR . ':00-' . self::LATEST_PUBLISH_HOUR . ':00).');
+            }
+            $now = TemporalContext::now();
+            $scelto = $now->copy()->setTimeFromTimeString($data['orario_pubblicazione']);
+            if ($scelto->lessThanOrEqualTo($now)) {
+                throw new RuntimeException("orario_pubblicazione {$data['orario_pubblicazione']} non è nel futuro rispetto a ora ({$now->format('H:i')}).");
+            }
+        } elseif ($data['orario_pubblicazione'] !== null) {
+            throw new RuntimeException('orario_pubblicazione deve essere null quando decisione è non_pubblicare.');
+        }
     }
 
    private function buildPrompt(
@@ -320,6 +354,7 @@ Questo è un conteggio vero sulle categorie (topic) delle ultime pubblicazioni, 
 {$compitoIntro}
 
     {$istruzioniPubblicazione}
+    - se decidi di pubblicare, scegli tu stesso l'orario di oggi con orario_pubblicazione ("HH:MM", 24h) — deve essere un orario futuro rispetto a adesso ({$oggi['ora']}) e ragionevole per un contenuto social, indicativamente tra le {$this->publishWindowStart()} e le {$this->publishWindowEnd()}; se a quest'ora del giorno non resta più una finestra sensata (es. sono già le 22:30), è più onesto scegliere "non_pubblicare" per oggi piuttosto che forzare un orario innaturale. Il CONTENUTO che scrivi (testo/prompt_immagine) deve essere coerente con l'orario scelto — non scrivere "buongiorno"/luce mattutina se scegli le 20:00, non scrivere "buonasera" se scegli le 08:00. Se decidi "non_pubblicare", orario_pubblicazione deve restare null.
     - scegli il formato più adatto all'idea, non il più comodo. Opzioni disponibili oggi: {$formatiDisponibili}
     - il testo/caption deve sembrare scritto da una persona reale, mai da un assistente AI, coerente con documentazione e stato interno
     - puoi proporre l'aggiornamento di UNA storyline con storyline_da_aggiornare, ma solo se il contenuto di oggi la fa avanzare davvero (non per il solo fatto di nominarla): storyline_id deve essere uno di quelli elencati sopra, mai un ID inventato; nuovo_stato è uno tra dormiente/aperta/in_pausa/risolta/abbandonata ("risolta" = chiusura con un finale soddisfacente, "abbandonata" = lasciata cadere senza un vero finale, "in_pausa" = si ferma ma resta aperta); se non stai aggiornando nessuna storyline, storyline_da_aggiornare deve essere null
@@ -366,6 +401,16 @@ TXT;
         }
 
         return implode(', ', $options);
+    }
+
+    private function publishWindowStart(): string
+    {
+        return sprintf('%02d:00', self::EARLIEST_PUBLISH_HOUR);
+    }
+
+    private function publishWindowEnd(): string
+    {
+        return sprintf('%02d:00', self::LATEST_PUBLISH_HOUR);
     }
 
     private function buildForcedParagraph(Character $character, ?int $daysSinceLastPost, ?int $maxGiorniSilenzio): string

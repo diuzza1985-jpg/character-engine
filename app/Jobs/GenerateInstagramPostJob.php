@@ -268,7 +268,17 @@ class GenerateInstagramPostJob implements ShouldQueue
                 'memorability' => $result['editorial_decision']->storyline?->importance,
             ]);
 
-            $result['post']->update(['media_urls' => $mediaPaths]);
+            // Automazione giornaliera: se il cervello editoriale ha scelto un orario_pubblicazione
+            // (validato da EditorialBrainService come "HH:MM" futuro, ora italiana), lo salviamo
+            // su scheduled_at — character:publish-due-posts lo userà per pubblicare da solo
+            // quando arriva quel momento, senza rigenerare nulla. TemporalContext::todayAt()
+            // converte esplicitamente in UTC (bug reale trovato e corretto: Eloquent non lo fa da
+            // solo in fase di storage).
+            $scheduledAt = ! empty($result['decision']['orario_pubblicazione'])
+                ? TemporalContext::todayAt($result['decision']['orario_pubblicazione'])
+                : null;
+
+            $result['post']->update(['media_urls' => $mediaPaths, 'scheduled_at' => $scheduledAt]);
 
             $result['generation']->update(['output' => array_merge($result['generation']->output, [
                 'image_path' => $imagePath,

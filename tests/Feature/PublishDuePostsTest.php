@@ -6,6 +6,7 @@ use App\Models\Character;
 use App\Models\Post;
 use App\Models\Tenant;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
+use Illuminate\Support\Facades\Log;
 use Tests\TestCase;
 
 /**
@@ -46,6 +47,27 @@ class PublishDuePostsTest extends TestCase
         $this->assertSame('draft', $future->fresh()->status);
         $this->assertSame('draft', $noSchedule->fresh()->status);
         $this->assertSame('published', $alreadyPublished->fresh()->status);
+    }
+
+    /**
+     * Bug reale osservato: questa macchina di sviluppo (WSL2/Windows) si è sospesa per oltre 2
+     * giorni — un post rimasto in coda da così tanto tempo scriveva un contenuto pensato per un
+     * orario preciso (es. "buonasera") che pubblicato ore/giorni dopo tradirebbe il principio
+     * cardine di questa automazione. Verificato che un post troppo stantio (oltre la soglia) NON
+     * arriva nemmeno a tentare la pubblicazione — distinto dal warning specifico di
+     * PublishInstagramPostJob (account non connesso) tramite il testo del log.
+     */
+    public function test_a_post_scheduled_too_long_ago_is_discarded_instead_of_published(): void
+    {
+        Log::spy();
+        $character = $this->makeCharacter();
+
+        $stale = Post::create(['character_id' => $character->id, 'platform' => 'instagram', 'media_type' => 'image', 'status' => 'draft', 'caption' => 'Post stantio', 'scheduled_at' => now()->subHours(30)]);
+
+        $this->artisan('character:publish-due-posts')->assertExitCode(0);
+
+        $this->assertSame('failed', $stale->fresh()->status);
+        Log::shouldHaveReceived('warning')->withArgs(fn (string $message) => str_contains($message, 'scartato') && str_contains($message, (string) $stale->id))->once();
     }
 
     public function test_does_nothing_when_no_post_is_due(): void

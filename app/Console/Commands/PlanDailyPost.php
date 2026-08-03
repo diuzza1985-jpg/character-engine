@@ -4,6 +4,8 @@ namespace App\Console\Commands;
 
 use App\Jobs\GenerateInstagramPostJob;
 use App\Models\Character;
+use App\Models\Generation;
+use App\Support\TemporalContext;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Bus;
 use Throwable;
@@ -19,6 +21,14 @@ use Throwable;
  * esistente, non un secondo call separato "solo per l'orario") — il post resta in stato draft
  * con scheduled_at valorizzato; character:publish-due-posts lo pubblicherà da solo al momento
  * giusto, senza rigenerare nulla.
+ *
+ * Schedulato ogni 15 minuti (non più una singola dailyAt('06:00')), con un controllo di
+ * idempotenza qui sotto ("ha già pianificato oggi?") — bug reale osservato: su una macchina di
+ * sviluppo che si sospende (WSL2/Windows, non un server sempre acceso), un trigger a un singolo
+ * minuto esatto viene perso per sempre se l'ambiente è sospeso esattamente in quel momento,
+ * saltando l'intera giornata senza nessun recupero. Ricontrollare ogni 15 minuti "ho già
+ * pianificato oggi per questo personaggio?" rende l'automazione resiliente: appena l'ambiente si
+ * risveglia, il giro successivo se ne accorge e pianifica comunque, invece di aspettare il giorno dopo.
  */
 class PlanDailyPost extends Command
 {
@@ -37,6 +47,12 @@ class PlanDailyPost extends Command
         }
 
         foreach ($characters as $character) {
+            if ($this->alreadyPlannedToday($character)) {
+                $this->comment("{$character->name}: già pianificato oggi, salto.");
+
+                continue;
+            }
+
             $this->info("Pianificazione giornaliera per {$character->name} (#{$character->id})...");
 
             try {
@@ -58,6 +74,22 @@ class PlanDailyPost extends Command
         }
 
         return self::SUCCESS;
+    }
+
+    /**
+     * "Oggi" in ora italiana (TemporalContext), non nell'UTC del server — stesso principio già
+     * applicato altrove in questa automazione (bug reale già trovato e corretto per
+     * season()/timeOfDay()). EditorialCycleService::run() crea sempre una Generation
+     * purpose=editorial_decision, anche quando la decisione è "non_pubblicare" — basta quella per
+     * sapere se il personaggio ha già avuto il suo giro decisionale oggi, non serve controllare
+     * se abbia prodotto un Post.
+     */
+    private function alreadyPlannedToday(Character $character): bool
+    {
+        return Generation::where('character_id', $character->id)
+            ->where('purpose', 'editorial_decision')
+            ->where('created_at', '>=', TemporalContext::now()->startOfDay()->utc())
+            ->exists();
     }
 
     private function resolveCharacters()

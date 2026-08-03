@@ -189,6 +189,7 @@ class EditorialContextBuilder
     private function buildRecentPosts(Character $character): array
     {
         return $character->posts()
+            ->with('generation')
             ->latest('created_at')
             ->take(self::MAX_RECENT_POSTS)
             ->get()
@@ -197,6 +198,13 @@ class EditorialContextBuilder
                 'formato' => $p->narrative_format ?? $p->media_type,
                 'stato' => $p->status,
                 'caption' => $p->caption ?: null,
+                // Bug reale osservato (agosto 2026): senza questo, il cervello editoriale non
+                // aveva NESSUNA visibilità su cosa avesse mostrato visivamente di recente (solo
+                // sul testo delle caption) — stesso identico abbigliamento ("shirt and jeans") e
+                // la stessa scena da tavolo ("laptop + quaderno + caffè freddo") ripetuti quasi
+                // identici per settimane, senza che nulla lo segnalasse. Stesso principio già
+                // applicato al testo (formatContenutiRecenti sotto), ora anche al visivo.
+                'prompt_immagine' => $p->generation?->output['prompt_immagine'] ?? null,
             ])
             ->all();
     }

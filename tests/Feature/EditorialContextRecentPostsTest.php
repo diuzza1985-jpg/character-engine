@@ -66,5 +66,6 @@ class EditorialContextRecentPostsTest extends TestCase
 
         $this->assertStringContainsString('A woman wearing a light shirt and jeans at a desk with iced coffee.', $prompt);
         $this->assertStringContainsString('VARIETÀ VISIVA', $prompt);
+        $this->assertStringContainsString('CHIAREZZA VISIVA', $prompt);
     }
 }

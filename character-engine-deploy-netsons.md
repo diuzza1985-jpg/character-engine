@@ -22,17 +22,13 @@ Prima di scrivere la guida ho controllato cosa l'app usa realmente, per non chie
 
 ## 2. Preparare i file da caricare (build fatta in locale, non sul server)
 
-Senza SSH sul server, `composer install` non può girare lì — va fatto **in locale** (in questo stesso ambiente WSL) e poi caricata anche la cartella `vendor/` risultante, cosa che normalmente non si fa (non è mai committata in git, resta un'eccezione solo per questo tipo di deploy).
+Senza SSH sul server, `composer install` non può girare lì — va fatto **in locale** (in questo stesso ambiente WSL, su una copia separata del progetto per non toccare l'ambiente di sviluppo) e poi caricata anche la cartella `vendor/` risultante, cosa che normalmente non si fa (non è mai committata in git, resta un'eccezione solo per questo tipo di deploy).
 
 ```bash
-# Nella cartella del progetto, con Docker Sail già attivo:
-docker compose exec laravel.test composer install --no-dev --optimize-autoloader
-docker compose exec laravel.test php artisan config:cache
-docker compose exec laravel.test php artisan route:cache
-docker compose exec laravel.test php artisan view:cache
+composer install --no-dev --optimize-autoloader --no-interaction
 ```
 
-Nota importante su `config:cache`/`route:cache`: una volta eseguiti, l'app legge la configurazione dalla cache compilata, non più da `.env` a runtime per ogni singola chiamata `env()` sparsa nel codice (in questo progetto `env()` è usato solo dentro `config/*.php`, mai direttamente nei Controller/Job — verificato, quindi è sicuro cachare). Se in futuro cambi una variabile in `.env` sul server, **devi rilanciare `config:cache`** (o cancellarla con `config:clear`) perché il cambiamento abbia effetto — punto a cui prestare attenzione visto che non avrai una shell per farlo al volo (vedi sez. 8 sotto per come lanciare comandi artisan senza SSH).
+**Non lanciare `config:cache`/`route:cache` a questo punto** — errore reale in cui sono incappato preparando il pacchetto: a questo stadio il `.env` è ancora quello di sviluppo (o del tutto assente, come nel pacchetto preparato), quindi una cache creata ora congelerebbe valori sbagliati (l'URL ngrok, il DB locale, o niente del tutto) — una volta cachata, l'app legge quei valori congelati e **ignora silenziosamente** qualunque `.env` reale creato dopo sul server, con un comportamento sbagliato difficile da diagnosticare senza una shell a disposizione. La cache è comunque facoltativa (solo un'ottimizzazione di performance, non un requisito): se la vuoi, vedi sez. 8 per lanciarla in modo sicuro **dopo** aver creato il `.env` reale sul server, con lo stesso trucco del cron temporaneo.
 
 Poi prepara un pacchetto con tutto il necessario, **escludendo**: `.git/`, `node_modules/`, `storage/framework/testing`, `.env` (quello va creato a mano direttamente sul server, mai caricato/committato — vedi sez. 6), e i file Docker/Sail (`compose.yaml`, `vendor/laravel/sail/`, `.devcontainer/` se presente) che non servono su hosting condiviso.
 
@@ -122,7 +118,7 @@ In cPanel → "Cron Jobs", aggiungi temporaneamente:
 
 Aspetta un minuto, controlla `storage/logs/migrate-once.log` (via File Manager) per confermare che sia andato a buon fine, **poi cancella subito questa riga di cron** (altrimenti proverebbe a rilanciare la migration ogni minuto — innocuo perché Laravel salta le migration già eseguite, ma inutile e rumoroso nei log).
 
-Stesso identico meccanismo per qualunque comando `artisan` che in futuro vorrai lanciare una tantum senza SSH (es. un comando di manutenzione, un seed, ecc.).
+Stesso identico meccanismo per qualunque comando `artisan` che in futuro vorrai lanciare una tantum senza SSH (es. un comando di manutenzione, un seed, ecc.) — **incluso, se vuoi l'ottimizzazione facoltativa della sez. 2**, `php artisan config:cache && php artisan route:cache && php artisan view:cache` come riga di cron temporanea a sé, solo ORA che il `.env` reale esiste già sul server (mai prima, vedi sez. 2).
 
 ## 9. Il cron reale — questo è il motivo di tutto il deploy
 

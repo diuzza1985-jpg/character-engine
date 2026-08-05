@@ -292,6 +292,8 @@ class EditorialBrainService
         ?array $temaCaldo = null,
     ): string {
         $oggi = $context['oggi'];
+        $festivitaLabel = $oggi['festivita'] !== null ? ", {$oggi['festivita']}" : '';
+        $contestoGiorno = $this->buildDayContextParagraph($character, $oggi);
         $documentation = $context['bible'] !== '' ? $context['bible'] : 'Nessuna sezione di bible trovata.';
         $visualProfile = $this->formatVisualProfile($context['profilo_visivo']);
         $statoInterno = json_encode($context['stato_interno'], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
@@ -326,8 +328,8 @@ Il tuo compito NON è scrivere un contenuto "a comando": è decidere, come fareb
 {$visualProfile}
 
 === OGGI ===
-{$oggi['data']}, {$oggi['ora']} ({$oggi['momento_del_giorno']}, {$oggi['stagione']})
-
+{$oggi['data']}, {$oggi['ora']} ({$oggi['momento_del_giorno']}, {$oggi['stagione']}) — {$oggi['giorno_settimana']}{$festivitaLabel}
+{$contestoGiorno}
 === STATO INTERNO DI OGGI (privato — il pubblico non lo vede mai) ===
 {$statoInterno}
 
@@ -442,6 +444,31 @@ TXT;
 === ISTRUZIONI SPECIFICHE PER OGGI (dal pannello di programmazione) ===
 "{$instructions}"
 Tienile in forte considerazione nella scelta del contenuto e della storyline, ma resta comunque libero di valutare se pubblicare o no in base allo stato del personaggio — a meno che il pavimento di pubblicazione (giorni di silenzio) sopra non renda comunque obbligatoria la pubblicazione oggi.
+TXT;
+    }
+
+    /**
+     * Bug reale segnalato dall'utente (11.29): senza questo, il cervello editoriale sapeva solo
+     * ora/stagione, mai che giorno della settimana fosse — poteva quindi scrivere un contenuto
+     * "giornata di lavoro/ufficio" anche di sabato, domenica o a Natale. Vuoto (nessuna sezione
+     * superflua nel prompt) se oggi non è né weekend né festività — stesso principio già usato
+     * per $regolaSilenzio/$temaCaldoSezione in buildPrompt().
+     */
+    private function buildDayContextParagraph(Character $character, array $oggi): string
+    {
+        if (! $oggi['weekend'] && $oggi['festivita'] === null) {
+            return '';
+        }
+
+        $giorno = $oggi['festivita'] !== null
+            ? "{$oggi['giorno_settimana']}, {$oggi['festivita']}"
+            : $oggi['giorno_settimana'];
+
+        return <<<TXT
+
+=== CONTESTO DEL GIORNO ===
+Oggi è {$giorno}. Il contenuto NON deve avere il tono di una normale giornata lavorativa/di ufficio (a meno che {$character->name}, per la sua storia/professione, lavori davvero in un giorno come questo — es. chi lavora nella ristorazione a Natale — in quel caso è una scelta narrativa deliberata, non il default): rifletti cosa farebbe davvero {$character->name} in un giorno come oggi — vacanza, famiglia, relax, una tradizione legata proprio a questa occasione (es. il pranzo di Natale, i fuochi di Capodanno, il mare a Ferragosto) — coerente col resto del suo profilo.
+
 TXT;
     }
 

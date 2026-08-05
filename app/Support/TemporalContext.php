@@ -59,4 +59,89 @@ class TemporalContext
             default => 'notte',
         };
     }
+
+    private const GIORNI_SETTIMANA = [
+        'Monday' => 'lunedì',
+        'Tuesday' => 'martedì',
+        'Wednesday' => 'mercoledì',
+        'Thursday' => 'giovedì',
+        'Friday' => 'venerdì',
+        'Saturday' => 'sabato',
+        'Sunday' => 'domenica',
+    ];
+
+    public static function giornoSettimana(): string
+    {
+        return self::GIORNI_SETTIMANA[self::now()->format('l')];
+    }
+
+    public static function isWeekend(): bool
+    {
+        return self::now()->isWeekend();
+    }
+
+    /**
+     * Festività fisse italiane (mese-giorno) + Pasqua/Pasquetta, calcolate con la data odierna
+     * (Europe/Rome). Nessuna festività locale/regionale — solo quelle nazionali, generico per
+     * qualunque personaggio italiano, non specifico di nessuno.
+     */
+    private const FESTIVITA_FISSE = [
+        '01-01' => 'Capodanno',
+        '01-06' => 'Epifania',
+        '04-25' => 'Festa della Liberazione',
+        '05-01' => 'Festa dei Lavoratori',
+        '06-02' => 'Festa della Repubblica',
+        '08-15' => 'Ferragosto',
+        '11-01' => 'Ognissanti',
+        '12-08' => 'Immacolata Concezione',
+        '12-24' => 'Vigilia di Natale',
+        '12-25' => 'Natale',
+        '12-26' => 'Santo Stefano',
+        '12-31' => 'Vigilia di Capodanno',
+    ];
+
+    public static function festivita(): ?string
+    {
+        $today = self::now();
+
+        $fissa = self::FESTIVITA_FISSE[$today->format('m-d')] ?? null;
+        if ($fissa !== null) {
+            return $fissa;
+        }
+
+        $pasqua = self::easterDate((int) $today->format('Y'));
+        if ($today->isSameDay($pasqua)) {
+            return 'Pasqua';
+        }
+        if ($today->isSameDay($pasqua->copy()->addDay())) {
+            return 'Pasquetta';
+        }
+
+        return null;
+    }
+
+    /**
+     * Algoritmo di Gauss/anonimo gregoriano per la data della Pasqua — esatto per qualunque anno
+     * del calendario gregoriano, non un'approssimazione. Verificato contro due date reali note:
+     * Pasqua 2026 = 5 aprile 2026, Pasqua 2027 = 28 marzo 2027 (vedi TemporalContextTest).
+     */
+    public static function easterDate(int $year): Carbon
+    {
+        $a = $year % 19;
+        $b = intdiv($year, 100);
+        $c = $year % 100;
+        $d = intdiv($b, 4);
+        $e = $b % 4;
+        $f = intdiv($b + 8, 25);
+        $g = intdiv($b - $f + 1, 3);
+        $h = (19 * $a + $b - $d - $g + 15) % 30;
+        $i = intdiv($c, 4);
+        $k = $c % 4;
+        $l = (32 + 2 * $e + 2 * $i - $h - $k) % 7;
+        $m = intdiv($a + 11 * $h + 22 * $l, 451);
+        $month = intdiv($h + $l - 7 * $m + 114, 31);
+        $day = (($h + $l - 7 * $m + 114) % 31) + 1;
+
+        return Carbon::create($year, $month, $day, 0, 0, 0, self::TIMEZONE);
+    }
 }

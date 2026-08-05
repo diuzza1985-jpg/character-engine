@@ -39,6 +39,13 @@ class EditorialContextBuilder
                 'ora' => TemporalContext::now()->format('H:i'),
                 'momento_del_giorno' => TemporalContext::timeOfDay(),
                 'stagione' => TemporalContext::season(),
+                // Contesto calendariale (11.29): serve al cervello editoriale per non scrivere un
+                // contenuto "giornata di lavoro/ufficio" in un weekend o in una festività —
+                // stesso principio di season()/timeOfDay(), Europe/Rome esplicito, nessuna
+                // chiamata esterna.
+                'giorno_settimana' => TemporalContext::giornoSettimana(),
+                'weekend' => TemporalContext::isWeekend(),
+                'festivita' => TemporalContext::festivita(),
             ],
             'bible' => $this->buildBible($character),
             'profilo_visivo' => $this->buildVisualProfile($character),

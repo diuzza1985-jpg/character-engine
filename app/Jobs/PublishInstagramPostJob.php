@@ -103,7 +103,13 @@ class PublishInstagramPostJob implements ShouldQueue
                 'media_urls' => [$storyPath],
             ]);
 
-            self::dispatch($storyPost->id);
+            // dispatchSync, non dispatch(): bug reale trovato verificando la coda in vista del
+            // deploy — nessun queue worker gira da nessuna parte (né in locale né altrove),
+            // quindi questo job restava bloccato per sempre in jobs (verificato: 4 job mai
+            // processati, 3 story rimaste in bozza dal 31 luglio). Stesso principio già seguito
+            // ovunque nel resto del codebase (GenerateInstagramPostJob, ProcessScheduledPostJob,
+            // ...): mai un dispatch asincrono senza un worker reale a processarlo.
+            self::dispatchSync($storyPost->id);
             Log::info("PublishInstagramPostJob: post {$post->id} condiviso anche in story (post {$storyPost->id})");
         } catch (Throwable $e) {
             Log::warning("PublishInstagramPostJob: condivisione in story fallita per post {$post->id}: {$e->getMessage()}");

@@ -677,7 +677,7 @@ Richiesta dall'utente: senza questo, il cervello editoriale conosceva solo ora/s
 - `EditorialBrainService` mostra un blocco dedicato "CONTESTO DEL GIORNO" nel prompt **solo quando oggi è weekend o festività** (stesso principio già usato per le altre sezioni condizionali del prompt, es. `$regolaSilenzio`/`$temaCaldoSezione`: nessuna sezione superflua nei giorni normali) — istruisce il cervello editoriale a riflettere cosa farebbe davvero il personaggio quel giorno specifico (vacanza, famiglia, una tradizione legata alla festività) invece del tono di una normale giornata lavorativa, a meno che la sua storia/professione giustifichi diversamente (scelta narrativa deliberata, non il default).
 - 15 nuovi test (calcolo Pasqua su più anni, `isWeekend()`, ciascuna festività fissa elencata, rendering del prompt su Natale/una domenica senza festività/un giorno feriale normale — nessuna chiamata GPT reale, stesso approccio già usato per `VARIETÀ VISIVA`/`CHIAREZZA VISIVA`). Verificato anche con i dati reali di Sofia (5 agosto 2026, mercoledì, nessuna festività: il blocco correttamente assente). Nessuna stringa specifica di un personaggio nel diff, verificato. Suite 110/110 verde.
 
-### 11.30 Un post falliva per un errore transitorio di Meta e non veniva mai ritentato — fatta (3 settembre 2026)
+### 11.30 Un post falliva per un errore transitorio di Meta e non veniva mai ritentato — fatta, commit `0eb6788` (3 settembre 2026)
 
 Segnalato dall'utente: Sofia non aveva pubblicato il post del 2 settembre (Post#50) ed era a rischio di saltare anche quello serale del 3 settembre (Post#51, 20:10 ora italiana). Diagnosi verificata nel codice reale prima di intervenire, non assunta dai soli log — **due cause reali concorrenti**, non una sola:
 

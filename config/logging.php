@@ -54,7 +54,7 @@ return [
 
         'stack' => [
             'driver' => 'stack',
-            'channels' => explode(',', (string) env('LOG_STACK', 'single')),
+            'channels' => explode(',', (string) env('LOG_STACK', 'single,alerts')),
             'ignore_exceptions' => false,
         ],
 
@@ -62,6 +62,19 @@ return [
             'driver' => 'single',
             'path' => storage_path('logs/laravel.log'),
             'level' => env('LOG_LEVEL', 'debug'),
+            'replace_placeholders' => true,
+        ],
+
+        // Aggiunto il 3 settembre 2026: un post falliva (Post#50) e restava invisibile finché
+        // nessuno controllava a mano laravel.log o il pannello admin — nessuna notifica, nessun
+        // modo rapido di accorgersene. Non duplica logging, si affianca: gli ERROR (e più gravi)
+        // finiscono anche qui, in un file dedicato e sgombro dal resto del traffico INFO/WARNING,
+        // facile da controllare (tail -f storage/logs/alerts.log) o collegare in futuro a
+        // un'email/notifica reale senza toccare i punti in cui viene loggato l'errore.
+        'alerts' => [
+            'driver' => 'single',
+            'path' => storage_path('logs/alerts.log'),
+            'level' => 'error',
             'replace_placeholders' => true,
         ],
 

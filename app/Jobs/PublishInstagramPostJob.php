@@ -11,6 +11,7 @@ use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\URL;
+use Illuminate\Support\Sleep;
 use Illuminate\Support\Str;
 use RuntimeException;
 use Throwable;
@@ -157,9 +158,18 @@ class PublishInstagramPostJob implements ShouldQueue
         }
         return $container['id'];
     }
+    /**
+     * Bug reale corretto il 3 settembre 2026 (Post#50): i 6 tentativi con sleep(5) precedenti (30s
+     * totali) non bastavano — Meta a volte impiega più di mezzo minuto a rendere davvero
+     * disponibile un container che poco prima segnalava già FINISHED (errore 9007/2207027 "Media
+     * ID is not available" visto in produzione nonostante questo stesso polling). 1 tentativo al
+     * minuto per non più di 5 minuti, coerente con i tempi di elaborazione osservati da Meta.
+     * Sleep::for(), non sleep(): fakeable nei test (Sleep::fake()), niente attese reali in CI.
+     */
     private function waitUntilReady(InstagramGraphService $instagram, string $containerId, string $accessToken): void
     {
-        $maxAttempts = 6;
+        $maxAttempts = 5;
+        $intervalSeconds = 60;
         for ($i = 0; $i < $maxAttempts; $i++) {
             $status = $instagram->getContainerStatus($containerId, $accessToken);
             if ($status === 'FINISHED') {
@@ -168,7 +178,9 @@ class PublishInstagramPostJob implements ShouldQueue
             if (in_array($status, ['ERROR', 'EXPIRED'], true)) {
                 throw new RuntimeException("Container {$containerId} in stato {$status}");
             }
-            sleep(5);
+            if ($i < $maxAttempts - 1) {
+                Sleep::for($intervalSeconds)->seconds();
+            }
         }
         throw new RuntimeException("Container {$containerId} non pronto dopo {$maxAttempts} tentativi (stato ancora IN_PROGRESS)");
     }

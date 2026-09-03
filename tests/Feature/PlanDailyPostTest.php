@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Console\Commands\PlanDailyPost;
 use App\Models\Character;
 use App\Models\Generation;
+use App\Models\Post;
 use App\Models\Tenant;
 use App\Support\TemporalContext;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
@@ -73,6 +74,57 @@ class PlanDailyPostTest extends TestCase
         $yesterday->timestamps = false;
         $yesterday->created_at = TemporalContext::now()->subDay()->utc();
         $yesterday->save();
+
+        $method = new ReflectionMethod(PlanDailyPost::class, 'alreadyPlannedToday');
+        $method->setAccessible(true);
+
+        $this->assertFalse($method->invoke(new PlanDailyPost(), $character));
+    }
+
+    /**
+     * Bug reale corretto il 3 settembre 2026 (Post#50): un post fallito per un errore transitorio
+     * di Meta e rimesso in bozza a mano con scheduled_at spostato a oggi (invece di rigenerarlo da
+     * capo interrogando di nuovo le API) deve bastare da solo a far saltare la ripianificazione,
+     * anche SENZA una Generation('editorial_decision') di oggi — senza insegnare a questo comando
+     * nulla di specifico su un personaggio o un post, solo "esiste già un post pronto per oggi?".
+     */
+    public function test_skips_a_character_with_a_draft_post_already_scheduled_for_today_even_without_a_todays_decision(): void
+    {
+        $character = $this->makeCharacter();
+
+        Post::create([
+            'character_id' => $character->id,
+            'platform' => 'instagram',
+            'media_type' => 'story',
+            'status' => 'draft',
+            'caption' => 'Post riprogrammato',
+            'scheduled_at' => TemporalContext::now()->setTime(9, 0)->utc(),
+        ]);
+
+        $this->artisan('character:plan-daily-post', ['character' => $character->id])
+            ->expectsOutputToContain('già pianificato oggi')
+            ->assertExitCode(0);
+
+        $this->assertSame(0, Generation::where('character_id', $character->id)->count());
+    }
+
+    /**
+     * Confine "oggi" verificato anche per il nuovo controllo sui Post, non solo per quello sulle
+     * Generation (test sopra): un post schedulato ieri o domani non deve contare come "già pronto
+     * per oggi".
+     */
+    public function test_a_post_scheduled_for_a_different_day_does_not_count_as_planned_today(): void
+    {
+        $character = $this->makeCharacter();
+
+        Post::create([
+            'character_id' => $character->id,
+            'platform' => 'instagram',
+            'media_type' => 'story',
+            'status' => 'draft',
+            'caption' => 'Post di domani',
+            'scheduled_at' => TemporalContext::now()->addDay()->setTime(9, 0)->utc(),
+        ]);
 
         $method = new ReflectionMethod(PlanDailyPost::class, 'alreadyPlannedToday');
         $method->setAccessible(true);

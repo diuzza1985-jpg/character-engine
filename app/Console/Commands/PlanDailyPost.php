@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use App\Jobs\GenerateInstagramPostJob;
 use App\Models\Character;
 use App\Models\Generation;
+use App\Models\Post;
 use App\Support\TemporalContext;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Bus;
@@ -83,12 +84,31 @@ class PlanDailyPost extends Command
      * purpose=editorial_decision, anche quando la decisione è "non_pubblicare" — basta quella per
      * sapere se il personaggio ha già avuto il suo giro decisionale oggi, non serve controllare
      * se abbia prodotto un Post.
+     *
+     * Secondo controllo aggiunto il 3 settembre 2026: un post già pronto (bozza o pubblicato) con
+     * scheduled_at di oggi conta come "già pianificato" anche SENZA una Generation odierna — copre
+     * il caso di un post riprogrammato a mano da un giorno precedente (es. un post fallito per un
+     * errore transitorio e non ripubblicato in tempo, rimesso in bozza con scheduled_at spostato a
+     * oggi invece di rigenerarlo da capo interrogando di nuovo le API) senza dover insegnare a
+     * questo comando nulla su un personaggio specifico: qualunque post già pronto per oggi basta.
      */
     private function alreadyPlannedToday(Character $character): bool
     {
-        return Generation::where('character_id', $character->id)
+        $startOfDay = TemporalContext::now()->startOfDay()->utc();
+        $endOfDay = TemporalContext::now()->endOfDay()->utc();
+
+        $hasDecisionToday = Generation::where('character_id', $character->id)
             ->where('purpose', 'editorial_decision')
-            ->where('created_at', '>=', TemporalContext::now()->startOfDay()->utc())
+            ->where('created_at', '>=', $startOfDay)
+            ->exists();
+
+        if ($hasDecisionToday) {
+            return true;
+        }
+
+        return Post::where('character_id', $character->id)
+            ->whereIn('status', ['draft', 'published'])
+            ->whereBetween('scheduled_at', [$startOfDay, $endOfDay])
             ->exists();
     }
 

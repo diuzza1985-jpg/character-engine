@@ -15,6 +15,15 @@ use Throwable;
  * SOLO quando arriva quel momento, senza rigenerare nulla. PublishInstagramPostJob aggiorna già
  * lo status a 'published'/'failed' da solo: nessun rischio di ripubblicare lo stesso post al
  * prossimo giro (esce naturalmente dalla query 'draft').
+ *
+ * dispatch(), non dispatchSync() (bug reale corretto il 3 settembre 2026, Post#50): con
+ * dispatchSync() il job gira su SyncQueue, che ignora del tutto $tries/$backoff — un errore
+ * transitorio di Meta (media container non ancora pronto, già visto due volte) falliva il post
+ * al primo e unico tentativo invece di essere ritentato. Ora che un worker di coda vero gira
+ * per davvero (servizio `queue` in compose.yaml), dispatch() lascia che quei retry già scritti
+ * sul job funzionino. Contropartita accettata: questo comando non conosce più l'esito reale
+ * subito dopo il dispatch (il job gira sul worker, non qui) — non è un problema per l'uso che se
+ * ne fa (nessun ramo di questo comando dipende dal valore di ritorno sincrono).
  */
 class PublishDuePosts extends Command
 {
@@ -58,14 +67,12 @@ class PublishDuePosts extends Command
                 continue;
             }
 
-            $this->info("Pubblico post #{$post->id} (character_id={$post->character_id}, programmato per {$post->scheduled_at->format('d/m/Y H:i')})...");
+            $this->info("Accodo post #{$post->id} (character_id={$post->character_id}, programmato per {$post->scheduled_at->format('d/m/Y H:i')})...");
 
             try {
-                PublishInstagramPostJob::dispatchSync($post->id);
-                $post->refresh();
-                $this->info("Stato finale: {$post->status}");
+                PublishInstagramPostJob::dispatch($post->id);
             } catch (Throwable $e) {
-                $this->error("Fallito: {$e->getMessage()}");
+                $this->error("Accodamento fallito: {$e->getMessage()}");
             }
         }
 

@@ -2,10 +2,13 @@
 
 namespace Tests\Feature;
 
+use App\Jobs\PublishInstagramPostJob;
 use App\Models\Character;
 use App\Models\Post;
 use App\Models\Tenant;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
+use Illuminate\Support\Facades\Config;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Tests\TestCase;
 
@@ -68,6 +71,35 @@ class PublishDuePostsTest extends TestCase
 
         $this->assertSame('failed', $stale->fresh()->status);
         Log::shouldHaveReceived('warning')->withArgs(fn (string $message) => str_contains($message, 'scartato') && str_contains($message, (string) $stale->id))->once();
+    }
+
+    /**
+     * Bug reale corretto il 3 settembre 2026 (Post#50): PublishInstagramPostJob dispatchava con
+     * dispatchSync(), che ignora $tries/$backoff — un errore transitorio di Meta falliva il post
+     * al primo tentativo, mai ritentato, perché nessun queue worker girava da nessuna parte.
+     * Verificato qui che il comando ora accodi davvero il job (QUEUE_CONNECTION=database, come in
+     * produzione) invece di eseguirlo sul posto: il post deve restare 'draft' subito dopo — sarà
+     * il worker reale (servizio `queue` in compose.yaml) a processarlo, coi retry già scritti sul
+     * job. In test normalmente gira QUEUE_CONNECTION=sync (phpunit.xml): qui lo sovrascriviamo
+     * apposta per verificare il comportamento reale di produzione, non quello di test.
+     */
+    public function test_dispatches_the_publish_job_onto_the_real_queue_instead_of_running_it_inline(): void
+    {
+        Config::set('queue.default', 'database');
+        $character = $this->makeCharacter();
+
+        $due = Post::create(['character_id' => $character->id, 'platform' => 'instagram', 'media_type' => 'image', 'status' => 'draft', 'caption' => 'Post in orario', 'scheduled_at' => now()->subMinutes(5)]);
+
+        $this->artisan('character:publish-due-posts')->assertExitCode(0);
+
+        // Non ancora processato inline: è il worker reale a doverlo fare, non questo comando.
+        $this->assertSame('draft', $due->fresh()->status);
+
+        $queued = DB::table('jobs')->where('queue', 'default')->get();
+        $this->assertCount(1, $queued);
+        $payload = json_decode($queued->first()->payload, true);
+        $this->assertSame(PublishInstagramPostJob::class, $payload['displayName']);
+        $this->assertStringContainsString("postId\";i:{$due->id};", $payload['data']['command']);
     }
 
     public function test_does_nothing_when_no_post_is_due(): void

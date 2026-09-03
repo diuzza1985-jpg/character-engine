@@ -57,6 +57,42 @@ services:
             - mysql
             - redis
         command: php artisan schedule:work
+    queue:
+        # Stesso pattern del servizio scheduler sopra (stessa immagine sail-8.5/app già costruita,
+        # nessun secondo build, WWWUSER hardcoded per lo stesso motivo lì spiegato): bug reale
+        # trovato verificando "docker compose ps" in vista del deploy — nessun worker di coda
+        # girava da nessuna parte, quindi i $tries/$backoff già scritti su PublishInstagramPostJob
+        # (5 tentativi, backoff crescente) non scattavano mai quando il job veniva dispatchato con
+        # dispatchSync() invece che su una coda vera (Post#50, 2 settembre 2026: fallito all'unico
+        # tentativo per un errore transitorio di Meta, mai ritentato). QUEUE_CONNECTION=database
+        # (.env): --tries/--backoff qui sono solo un fallback, il job definisce già i suoi.
+        image: 'sail-8.5/app'
+        extra_hosts:
+            - 'host.docker.internal:host-gateway'
+        environment:
+            WWWUSER: '1000'
+            LARAVEL_SAIL: 1
+        volumes:
+            - '.:/var/www/html'
+        networks:
+            - sail
+        depends_on:
+            - mysql
+            - redis
+        command: php artisan queue:work --tries=5 --backoff=30,60,300,900,3600
+    ngrok:
+        image: 'ngrok/ngrok:latest'
+        restart: unless-stopped
+        environment:
+            NGROK_AUTHTOKEN: '${NGROK_AUTHTOKEN}'
+        command:
+            - http
+            - 'laravel.test:80'
+            - '--url=waking-dispense-uniformed.ngrok-free.dev'
+        networks:
+            - sail
+        depends_on:
+            - laravel.test
     mysql:
         image: 'mysql:8.4'
         ports:

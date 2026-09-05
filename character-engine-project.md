@@ -694,7 +694,7 @@ Segnalato dall'utente: Sofia non aveva pubblicato il post del 2 settembre (Post#
 - **Dato reale corretto** (non codice): Post#50 rimesso in bozza (`status='draft'`) con `scheduled_at` spostato al 4 settembre 2026 07:15 (stesso orario, giorno successivo) — il file immagine originale esisteva ancora su disco, contenuto riusabile as-is. Il nuovo controllo di `alreadyPlannedToday()` farà sì che domattina `character:plan-daily-post` lo trovi già pronto e salti la rigenerazione per Sofia, mentre `character:publish-due-posts` lo pubblicherà al momento giusto con i nuovi retry disponibili.
 - 10 nuovi test: polling paziente ma limitato nel tempo (`Sleep::fake()`, nessuna attesa reale — 3 letture IN_PROGRESS poi FINISHED, timeout dopo 5 tentativi, uscita immediata su `ERROR`), pubblicazione end-to-end riuscita con un container inizialmente non pronto, fallimento visibile (post `failed` + log `error`), accodamento reale verificato leggendo la tabella `jobs` (non l'esecuzione sincrona), canale `alerts` cablato nello stack, doppio controllo di idempotenza di `plan-daily-post` (con e senza Generation odierna, confine "oggi" verificato anche sul nuovo controllo). Suite 120/120 verde.
 
-### 11.31 Due bug reali nati dal fix del giorno prima (11.30), trovati sul post successivo — fatta, commit `TBD` (4 settembre 2026)
+### 11.31 Due bug reali nati dal fix del giorno prima (11.30), trovati sul post successivo — fatta, commit `9d649fd` (4 settembre 2026)
 
 Segnalato dall'utente ("va che non ha pubblicato niente"): Post#50, riprogrammato il giorno prima per le 07:15 di stamattina, non risultava pubblicato. **Non era il problema di ieri** (la macchina si era sospesa di nuovo tra le 17:45 del 3 settembre e circa le 05:30 del 4 — mitigato a parte, vedi sotto — ma questa volta non c'entra: lo scheduler si era già ripreso da solo e aveva accodato il job in orario). Due bug reali distinti, entrambi introdotti dal fix di 11.30, trovati confrontando log/DB/stato dei container prima di agire:
 
@@ -706,7 +706,7 @@ Segnalato dall'utente ("va che non ha pubblicato niente"): Post#50, riprogrammat
 
 **Lezione per il futuro**: un fix va verificato anche nel percorso "reale, non fakeato" quando cambia qualcosa che nei test viene sempre simulato (qui: `Sleep::fake()` nascondeva che `Sleep::for(60)->seconds()` chiama davvero `sleep()` fuori dai test, e nessun test dispatcha mai due volte lo stesso job su una coda reale). Non risolvibile lato test in astratto — richiede di guardare il comportamento reale in produzione dopo il deploy, come fatto qui.
 
-### 11.32 La stagione di calendario trattata come una previsione meteo reale — fatta, commit `TBD` (4 settembre 2026)
+### 11.32 La stagione di calendario trattata come una previsione meteo reale — fatta, commit `9d649fd` (4 settembre 2026)
 
 Segnalato dall'utente guardando Post#50 appena pubblicato: l'immagine mostrava un golfino pesante e foglie autunnali a terra il 4 settembre, con 38°C reali fuori. Causa verificata leggendo la `Generation` reale (non assunta): `prompt_immagine` diceva letteralmente "early autumn morning... soft burgundy hoodie... a few early fallen leaves" — il cervello editoriale stava eseguendo correttamente un'istruzione esistente ("oggi è {stagione}, vesti in modo coerente", `EditorialBrainService.php`), ma `TemporalContext::season()` classifica la stagione solo per mese di calendario (settembre → sempre "autunno"), senza nessun segnale reale di temperatura — e nel codice non esiste nessuna integrazione meteo.
 

@@ -9,6 +9,8 @@ use App\Models\SocialAccount;
 use App\Models\Tenant;
 use App\Services\InstagramGraphService;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
+use Illuminate\Support\Facades\Config;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Sleep;
@@ -173,5 +175,43 @@ class PublishInstagramPostJobTest extends TestCase
         Log::shouldHaveReceived('error')
             ->withArgs(fn (string $message) => str_contains($message, (string) $post->id) && str_contains($message, 'errore simulato'))
             ->once();
+    }
+
+    /**
+     * Bug reale corretto il 4 settembre 2026: character:publish-due-posts ridispatcha questo job
+     * a ogni giro per un post ancora 'draft' — con un worker lento/fermo, lo stesso post
+     * accumulava un job duplicato ogni 15 minuti (5 trovati in coda dopo un crash del worker,
+     * verificato in produzione). Se fossero girati tutti, Instagram avrebbe ricevuto lo stesso
+     * post 5 volte. ShouldBeUnique (uniqueId = id del post) deve impedirlo: un secondo dispatch
+     * mentre il primo è ancora in coda non deve aggiungere una seconda riga.
+     */
+    public function test_dispatching_the_same_post_twice_while_one_is_still_queued_does_not_duplicate_it(): void
+    {
+        Config::set('queue.default', 'database');
+        $post = $this->makeConnectedPost();
+
+        PublishInstagramPostJob::dispatch($post->id);
+        PublishInstagramPostJob::dispatch($post->id);
+
+        $this->assertSame(1, DB::table('jobs')->count());
+    }
+
+    /**
+     * Idempotenza aggiunta in difesa, stesso incidente: se per qualunque motivo il job gira comunque
+     * una seconda volta su un post già pubblicato, non deve ripubblicare nulla su Instagram (nessuna
+     * chiamata Http::fake non prevista qui — se handle() provasse a costruire un nuovo container,
+     * il fake non configurato farebbe fallire il test).
+     */
+    public function test_running_the_job_twice_on_an_already_published_post_does_not_republish(): void
+    {
+        $post = $this->makeConnectedPost();
+        $post->update(['status' => 'published', 'platform_post_id' => 'GIA_PUBBLICATO']);
+
+        Http::fake(); // nessuna chiamata attesa: qualunque richiesta reale farebbe fallire il test.
+
+        PublishInstagramPostJob::dispatchSync($post->id);
+
+        Http::assertNothingSent();
+        $this->assertSame('GIA_PUBBLICATO', $post->fresh()->platform_post_id);
     }
 }

@@ -66,6 +66,14 @@ services:
         # dispatchSync() invece che su una coda vera (Post#50, 2 settembre 2026: fallito all'unico
         # tentativo per un errore transitorio di Meta, mai ritentato). QUEUE_CONNECTION=database
         # (.env): --tries/--backoff qui sono solo un fallback, il job definisce già i suoi.
+        #
+        # --timeout=3600 (bug reale corretto il 4 settembre 2026): il default di "queue:work" è 60
+        # secondi — questo container ha pcntl, quindi Laravel applica il timeout uccidendo il
+        # processo figlio che esegue il job; girando come PID 1 senza init, quel kill si è portato
+        # via l'intero container (uscito subito dopo un solo giro di sleep da 60s dentro
+        # PublishInstagramPostJob::waitUntilReady(), che può polling fino a 5 minuti per container
+        # più i minuti di ogni singola slide di un carousel — ben oltre il default). Verificato nei
+        # log del container: RUNNING alle 07:15:03, morto alle 07:16:03, esattamente 60s dopo.
         image: 'sail-8.5/app'
         extra_hosts:
             - 'host.docker.internal:host-gateway'
@@ -79,7 +87,7 @@ services:
         depends_on:
             - mysql
             - redis
-        command: php artisan queue:work --tries=5 --backoff=30,60,300,900,3600
+        command: php artisan queue:work --tries=5 --backoff=30,60,300,900,3600 --timeout=3600
     ngrok:
         image: 'ngrok/ngrok:latest'
         restart: unless-stopped

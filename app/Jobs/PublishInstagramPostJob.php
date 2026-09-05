@@ -4,6 +4,7 @@ use App\Models\Post;
 use App\Services\InstagramGraphService;
 use App\Services\StoryComposerService;
 use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
@@ -15,15 +16,39 @@ use Illuminate\Support\Sleep;
 use Illuminate\Support\Str;
 use RuntimeException;
 use Throwable;
-class PublishInstagramPostJob implements ShouldQueue
+/**
+ * ShouldBeUnique (bug reale corretto il 4 settembre 2026): character:publish-due-posts dispatcha
+ * questo job a ogni giro (ogni 15 minuti) per qualunque post ancora 'draft' con l'orario arrivato
+ * — con dispatch() vero (non più dispatchSync(), 11.30) lo stato non cambia finché un worker non
+ * lo processa davvero. Se il worker è lento, occupato o (come successo qui) va giù, ogni giro
+ * successivo accodava un ALTRO job per lo stesso post: trovati 5 job duplicati in coda per lo
+ * stesso Post#50 dopo che il worker è crashato — se fossero stati processati tutti, avrebbe
+ * pubblicato lo stesso post 5 volte su Instagram. uniqueId() = id del post, uniqueFor = più del
+ * tempo massimo realistico che il job può impiegare (tries/backoff/attesa container inclusi).
+ */
+class PublishInstagramPostJob implements ShouldQueue, ShouldBeUnique
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
     public $tries = 5;
     public $backoff = [30, 60, 300, 900, 3600];
+    public $uniqueFor = 7200;
     public function __construct(private int $postId) {}
+    public function uniqueId(): string
+    {
+        return (string) $this->postId;
+    }
     public function handle(InstagramGraphService $instagram): void
     {
         $post = Post::with('character.socialAccount')->findOrFail($this->postId);
+
+        // Idempotenza (stesso incidente del 4 settembre 2026 sopra): se per qualunque motivo
+        // questo job gira una seconda volta su un post già pubblicato (coda duplicata, retry
+        // manuale, race condition), non ripubblicare mai un contenuto già uscito su Instagram.
+        if ($post->status === 'published') {
+            Log::info("PublishInstagramPostJob: post {$post->id} già pubblicato, salto (dispatch duplicato).");
+            return;
+        }
+
         $account = $post->character->socialAccount;
         if (! $account || $account->status !== 'connected') {
             $post->update(['status' => 'failed']);

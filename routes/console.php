@@ -9,6 +9,11 @@ Artisan::command('inspire', function () {
 })->purpose('Display an inspiring quote');
 
 Schedule::command('instagram:reply-comments sofia')->hourly();
+// Bug reale del 13 settembre 2026 (Post#58/59/60): il rinnovo del token esisteva già come metodo
+// (InstagramGraphService::refreshLongLivedToken) ma non era mai schedulato — il token (60 giorni
+// di validità) scadeva in silenzio. ->daily() basta: il comando rinnova già tutto ciò che scade
+// entro 7 giorni (RefreshInstagramTokens::REFRESH_WINDOW_DAYS), non serve un controllo più fitto.
+Schedule::command('instagram:refresh-tokens')->daily();
 Schedule::command('schedule:materialize-weekly')->dailyAt('00:05');
 Schedule::command('schedule:process-due')->everyFifteenMinutes();
 // Orario da tarare in seguito (dopo che sappiamo quando girano generazione/pubblicazione).

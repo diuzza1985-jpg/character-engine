@@ -36,7 +36,12 @@ services:
         # perpetuo di un vero cron (valuta routes/console.php ogni minuto), necessario perché
         # nessun cron di sistema gira dentro questi container — senza questo servizio,
         # character:plan-daily-post/character:publish-due-posts non sarebbero mai partiti da soli.
+        #
+        # restart + condition: service_healthy per lo stesso identico motivo spiegato sul servizio
+        # queue qui sotto (l'11 settembre è toccato a quello, ma questo è esposto allo stesso modo:
+        # se muore, nessun post viene più nemmeno accodato).
         image: 'sail-8.5/app'
+        restart: unless-stopped
         extra_hosts:
             - 'host.docker.internal:host-gateway'
         environment:
@@ -54,8 +59,10 @@ services:
         networks:
             - sail
         depends_on:
-            - mysql
-            - redis
+            mysql:
+                condition: service_healthy
+            redis:
+                condition: service_healthy
         command: php artisan schedule:work
     queue:
         # Stesso pattern del servizio scheduler sopra (stessa immagine sail-8.5/app già costruita,
@@ -74,7 +81,19 @@ services:
         # PublishInstagramPostJob::waitUntilReady(), che può polling fino a 5 minuti per container
         # più i minuti di ogni singola slide di un carousel — ben oltre il default). Verificato nei
         # log del container: RUNNING alle 07:15:03, morto alle 07:16:03, esattamente 60s dopo.
+        #
+        # restart + condition: service_healthy (bug reale corretto il 13 settembre 2026, Post#58/59/60):
+        # al risveglio di WSL2 dell'11 settembre alle 05:35 questo worker è ripartito prima che mysql
+        # accettasse connessioni, "queue:work" è morto alla primissima query (SQLSTATE[HY000] [2002]
+        # Connection refused su `cache`, uscito con codice 1) e — senza politica di restart — non è
+        # più tornato su per due giorni. Nessuno se n'è accorto perché niente va in errore: i job si
+        # accumulavano in coda con attempts=0, i post restavano 'draft' e tre ore dopo il loro orario
+        # PublishDuePosts li marcava 'failed' per staleness. Il "depends_on" semplice garantisce solo
+        # l'ordine di avvio, NON che mysql sia pronto: serve la condizione sull'healthcheck che mysql
+        # già espone. Le due cose insieme coprono entrambi i casi (mysql lento all'avvio, mysql che
+        # sparisce a worker già acceso).
         image: 'sail-8.5/app'
+        restart: unless-stopped
         extra_hosts:
             - 'host.docker.internal:host-gateway'
         environment:
@@ -85,8 +104,10 @@ services:
         networks:
             - sail
         depends_on:
-            - mysql
-            - redis
+            mysql:
+                condition: service_healthy
+            redis:
+                condition: service_healthy
         command: php artisan queue:work --tries=5 --backoff=30,60,300,900,3600 --timeout=3600
     ngrok:
         image: 'ngrok/ngrok:latest'

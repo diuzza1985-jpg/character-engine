@@ -115,4 +115,9 @@ return [
         'name' => env('MAIL_FROM_NAME', env('APP_NAME', 'Laravel')),
     ],
 
+    // Destinatario degli avvisi automatici (richiesta utente, 13 ottobre 2026:
+    // CheckCreditBalances/LowCreditBalanceMail) — separato da MAIL_FROM_ADDRESS perché quello
+    // è il mittente, non necessariamente chi deve ricevere un avviso operativo.
+    'alert_to' => env('MAIL_ALERT_TO'),
+
 ];

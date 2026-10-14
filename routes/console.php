@@ -40,3 +40,9 @@ Schedule::command('character:plan-daily-post')->timezone('Europe/Rome')->everyFi
 // Stessa cadenza di schedule:process-due sopra: qui non si genera nulla, solo pubblicare i post
 // già pronti (scheduled_at) il cui orario è arrivato.
 Schedule::command('character:publish-due-posts')->everyFifteenMinutes();
+
+// Avviso saldo fal.ai/OpenAI via email (richiesta utente, 13 ottobre 2026). Ogni 6 ore basta: il
+// comando stesso non manda più di un'email ogni 24h mentre si resta sotto soglia
+// (CheckCreditBalances::ALERT_COOLDOWN_HOURS), questa cadenza serve solo a non far passare troppo
+// tempo dal momento in cui si scende sotto soglia a quando arriva il primo avviso.
+Schedule::command('credits:check-balances')->everySixHours();

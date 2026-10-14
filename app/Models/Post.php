@@ -9,7 +9,7 @@ class Post extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['character_id', 'generation_id', 'related_post_id', 'platform', 'media_type', 'narrative_format', 'platform_post_id', 'scheduled_at', 'published_at', 'status', 'caption', 'media_urls'];
+    protected $fillable = ['character_id', 'generation_id', 'related_post_id', 'platform', 'media_type', 'narrative_format', 'platform_post_id', 'scheduled_at', 'published_at', 'status', 'caption', 'media_urls', 'comic_target', 'comic_target_checked_at'];
 
     protected function casts(): array
     {
@@ -17,6 +17,7 @@ class Post extends Model
             'media_urls' => 'array',
             'scheduled_at' => 'datetime',
             'published_at' => 'datetime',
+            'comic_target_checked_at' => 'datetime',
         ];
     }
 

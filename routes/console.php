@@ -46,3 +46,7 @@ Schedule::command('character:publish-due-posts')->everyFifteenMinutes();
 // (CheckCreditBalances::ALERT_COOLDOWN_HOURS), questa cadenza serve solo a non far passare troppo
 // tempo dal momento in cui si scende sotto soglia a quando arriva il primo avviso.
 Schedule::command('credits:check-balances')->everySixHours();
+
+// Sostituisce la routine cloud "Osservazione bersagli comici" (14 ottobre 2026, vedi
+// CheckComicTargets): stesso giorno e ora, lunedì mattina, sulle caption già nel DB.
+Schedule::command('character:check-comic-targets sofia')->weeklyOn(1, '08:00');

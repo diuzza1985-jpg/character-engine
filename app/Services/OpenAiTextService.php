@@ -28,6 +28,29 @@ class OpenAiTextService
         $this->validate($data);
         return $data;
     }
+    /**
+     * JSON libero, senza la validazione di forma di generate() (che pretende un post Instagram
+     * completo): per i classificatori che restituiscono strutture proprie (CheckComicTargets).
+     */
+    public function generateJson(string $prompt): array
+    {
+        $response = Http::withToken(config('services.openai.key'))
+            ->timeout(120)
+            ->post('https://api.openai.com/v1/chat/completions', [
+                'model' => config('services.openai.text_model'),
+                'messages' => [
+                    ['role' => 'user', 'content' => $prompt],
+                ],
+                'response_format' => ['type' => 'json_object'],
+            ])
+            ->throw()
+            ->json();
+        $data = json_decode($response['choices'][0]['message']['content'] ?? '', true);
+        if (! is_array($data)) {
+            throw new RuntimeException('OpenAI non ha restituito un JSON valido.');
+        }
+        return $data;
+    }
     public function generateReply(string $prompt): string
     {
         $response = Http::withToken(config('services.openai.key'))

@@ -2,6 +2,10 @@
 
 Log settimanale del controllo automatico sui bersagli comici usati nei post Instagram di Sofia, per verificare se il fix del 24/07/2026 (caption piena nel prompt del cervello editoriale + istruzione a non ripetere bersagli) sta funzionando.
 
+> **14 ottobre 2026 — controllo spostato in locale.** La routine cloud che scriveva questo file è stata disattivata: non è mai riuscita a girare (graph.instagram.com bloccato dalla policy di rete dell'ambiente cloud, token copiato a mano nel prompt). Ora il controllo è il comando `character:check-comic-targets`, schedulato il lunedì alle 08:00, che legge le caption dal DB, salva il bersaglio su `posts.comic_target` e scrive il report in `storage/app/private/reports/bersagli-comici-sofia.md` (avviso via email se ci sono ripetizioni). Lo storico sotto resta solo come archivio.
+>
+> Primo giro locale (14/10/2026, 40 post pubblicati): "l'AI che cambia modello / sbaglia" 7, "Fernando e i suoi progetti" 7, multitasking 3, clienti 2, occhiali 1, non umoristici 20. Ripetizione negli ultimi 15 giorni: bersaglio AI il 02/10 e l'08/10.
+
 ## Ultimo controllo: 2026-10-12
 
 ⚠ CONTROLLO NON ESEGUITO PER L'UNDICESIMA SETTIMANA CONSECUTIVA — impossibile chiamare l'API Instagram Graph. La chiamata `GET https://graph.instagram.com/v21.0/{IG_USER_ID}/media` ha fallito di nuovo con `CONNECT tunnel failed, response 403`, host `graph.instagram.com:443`. L'host continua a non essere incluso nella policy di egress consentita per questo ambiente schedulato. Non è stato analizzato nessun post nuovo, per l'undicesima settimana di fila.

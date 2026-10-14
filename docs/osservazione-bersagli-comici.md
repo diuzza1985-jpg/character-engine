@@ -1,0 +1,44 @@
+# Osservazione bersagli comici — Sofia
+
+Log settimanale del controllo automatico sui bersagli comici usati nei post Instagram di Sofia, per verificare se il fix del 24/07/2026 (caption piena nel prompt del cervello editoriale + istruzione a non ripetere bersagli) sta funzionando.
+
+## Ultimo controllo: 2026-10-12
+
+⚠ CONTROLLO NON ESEGUITO PER L'UNDICESIMA SETTIMANA CONSECUTIVA — impossibile chiamare l'API Instagram Graph. La chiamata `GET https://graph.instagram.com/v21.0/{IG_USER_ID}/media` ha fallito di nuovo con `CONNECT tunnel failed, response 403`, host `graph.instagram.com:443`. L'host continua a non essere incluso nella policy di egress consentita per questo ambiente schedulato. Non è stato analizzato nessun post nuovo, per l'undicesima settimana di fila.
+
+Azione consigliata: il blocco resta strutturale e invariato — undici settimane consecutive con lo stesso identico errore di policy. Continuare a ritentare automaticamente ogni settimana non produrrà risultati finché la policy di rete dell'ambiente schedulato non viene aggiornata manualmente per includere `graph.instagram.com` (impostazione "Network access" dell'ambiente cloud, menu dell'ambiente nella barra del titolo della sessione → Edit → Custom → aggiungere il dominio a "Allowed domains"). Il monitoraggio dei bersagli comici resta completamente fermo dal 24/07/2026 (data del fix) a oggi: non copre nessuno dei post pubblicati da allora, quindi non è ancora possibile dire se il fix del 24/07 stia funzionando o meno. Si raccomanda di intervenire sulla configurazione di rete dell'ambiente prima della prossima esecuzione, altrimenti il task continuerà a non produrre valore.
+
+## Storico controlli
+
+### 2026-10-12
+- Nessun post analizzato — errore di rete (vedi sopra), API Instagram ancora irraggiungibile da questo ambiente (stesso errore delle dieci settimane precedenti).
+
+### 2026-10-05
+- Nessun post analizzato — errore di rete (vedi sopra), API Instagram ancora irraggiungibile da questo ambiente (stesso errore delle nove settimane precedenti).
+
+### 2026-09-28
+- Nessun post analizzato — errore di rete (vedi sopra), API Instagram ancora irraggiungibile da questo ambiente (stesso errore delle otto settimane precedenti).
+
+### 2026-09-21
+- Nessun post analizzato — errore di rete (vedi sopra), API Instagram ancora irraggiungibile da questo ambiente (stesso errore delle sette settimane precedenti).
+
+### 2026-09-14
+- Nessun post analizzato — errore di rete (vedi sopra), API Instagram ancora irraggiungibile da questo ambiente (stesso errore delle sei settimane precedenti).
+
+### 2026-09-07
+- Nessun post analizzato — errore di rete (vedi sopra), API Instagram ancora irraggiungibile da questo ambiente (stesso errore delle cinque settimane precedenti).
+
+### 2026-08-31
+- Nessun post analizzato — errore di rete (vedi sopra), API Instagram ancora irraggiungibile da questo ambiente (stesso errore delle quattro settimane precedenti).
+
+### 2026-08-24
+- Nessun post analizzato — errore di rete (vedi sopra), API Instagram ancora irraggiungibile da questo ambiente (stesso errore delle tre settimane precedenti).
+
+### 2026-08-17
+- Nessun post analizzato — errore di rete (vedi sopra), API Instagram ancora irraggiungibile da questo ambiente (stesso errore delle due settimane precedenti).
+
+### 2026-08-10
+- Nessun post analizzato — errore di rete (vedi sopra), API Instagram ancora irraggiungibile da questo ambiente (stesso errore della settimana precedente).
+
+### 2026-08-03
+- Nessun post analizzato — errore di rete (vedi sopra), API Instagram irraggiungibile da questo ambiente.

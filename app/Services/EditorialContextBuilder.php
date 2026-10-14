@@ -2,6 +2,7 @@
 namespace App\Services;
 use App\Models\Character;
 use App\Models\CharacterRelationship;
+use App\Models\Generation;
 use App\Models\Post;
 use App\Models\Storyline;
 use App\Models\TimelineEntry;
@@ -14,14 +15,29 @@ use App\Support\TemporalContext;
 class EditorialContextBuilder
 {
     private const MAX_STORYLINES = 3;
-    private const MAX_RELATIONSHIPS = 5;
+    // Bug reale segnalato dall'utente (13 ottobre 2026): con un tetto di 5 e last_interaction_at
+    // NULL per quasi tutte le relazioni (mai aggiornato altrove nel codice), l'ordinamento
+    // orderByDesc('last_interaction_at') lasciava Sara e Marta fuori dal taglio quasi sempre,
+    // dietro agli animali domestici (stesso valore NULL, ma in pratica ordinati prima per
+    // id/inserimento) — il cervello editoriale non le vedeva proprio in RELAZIONI RILEVANTI,
+    // a prescindere da qualunque istruzione di varietà nel prompt. 10 copre comodamente il
+    // numero reale di relazioni di oggi (7) con margine di crescita, senza reintrodurre lo
+    // stesso taglio arbitrario.
+    private const MAX_RELATIONSHIPS = 10;
     private const MAX_RECENT_POSTS = 12;
     private const MAX_RECENT_TIMELINE = 15;
     private const MAX_MEMORIES = 3;
     private const MAX_TOPIC_LOOKBACK = 8;
+    // Finestra più lunga di MAX_TOPIC_LOOKBACK: scegliere di mostrare una relazione in foto è un
+    // evento molto più raro di scegliere un topic (12/74 decisioni nel campione che ha fatto
+    // emergere il problema, sez. sotto) — una finestra corta come quella dei topic non darebbe
+    // segnale a sufficienza per accorgersi dello squilibrio.
+    private const MAX_RELATIONSHIP_LOOKBACK = 25;
+    private const MAX_FORMAT_LOOKBACK = 10;
 
     public function __construct(
         private readonly MemoryRecallSelector $memoryRecallSelector,
+        private readonly NewsDigestService $newsDigest,
     ) {
     }
 
@@ -54,8 +70,25 @@ class EditorialContextBuilder
             'relazioni_rilevanti' => $this->buildRelevantRelationships($character),
             'contenuti_recenti' => $this->buildRecentPosts($character),
             'varieta_argomenti' => $this->buildTopicFrequency($character),
+            // Bug reale segnalato dall'utente (13 ottobre 2026): su 74 decisioni editoriali di
+            // Sofia, il marito è comparso fisicamente in foto solo 3 volte e la figlia Sara una
+            // sola volta, contro le 7 del cane Pippo — nessun dato tracciava questo squilibrio
+            // (a differenza di varieta_argomenti sopra, che esiste apposta per i topic), quindi
+            // il cervello editoriale non aveva modo di accorgersene da solo.
+            'varieta_personaggi_coinvolti' => $this->buildRelationshipAppearanceFrequency($character),
+            // Stesso bug, lato formato: "post" (foto + testo overlay) dominava nettamente sugli
+            // altri formati disponibili senza che nulla lo segnalasse — stesso principio di
+            // varieta_argomenti, applicato al formato invece che al topic.
+            'varieta_formati' => $this->buildFormatFrequency($character),
             'vita_recente' => $this->buildRecentTimeline($character),
             'possibili_ricordi' => $this->buildRelevantMemories($character),
+            // Spunti di attualità/curiosità generici (non legati alla nicchia del personaggio,
+            // a differenza del "tema caldo" di CheckHotTopics): bug reale segnalato dall'utente,
+            // la ricerca di notizie del giorno esisteva solo nella pipeline legacy
+            // (NewsDigestService, via LifeEvent.news_query) e non è mai stata portata nel ciclo
+            // editoriale basato su cervello — qui è materiale disponibile ogni giorno per
+            // qualunque formato, non solo per "tema_caldo".
+            'notizie_del_giorno' => $this->buildGeneralNewsDigest(),
         ];
     }
 
@@ -237,6 +270,93 @@ class EditorialContextBuilder
             ->countBy()
             ->sortDesc()
             ->all();
+    }
+
+    /**
+     * Conteggio deterministico di quante volte ciascuna relazione "può comparire in foto"
+     * (related_character_id valorizzato) è stata davvero scelta come personaggio_coinvolto_id
+     * nelle ultime decisioni, più quante volte non è stata scelta nessuna — stesso principio di
+     * buildTopicFrequency sopra, applicato a CHI compare in foto invece che a COSA si racconta.
+     * Legge Generation.output (dove personaggio_coinvolto_id viene scritto da
+     * EditorialBrainService::decide()), non Post: una decisione può fallire dopo (immagine) senza
+     * che questo conteggio ne risenta, è la scelta editoriale che conta qui, non l'esito tecnico.
+     *
+     * @return array{per_relazione: array<string,int>, nessuno: int, totale: int}
+     */
+    private function buildRelationshipAppearanceFrequency(Character $character): array
+    {
+        $eligibili = $character->relationships()
+            ->whereNotNull('related_character_id')
+            ->get(['id', 'name']);
+
+        if ($eligibili->isEmpty()) {
+            return ['per_relazione' => [], 'nessuno' => 0, 'totale' => 0];
+        }
+
+        $perRelazione = $eligibili->mapWithKeys(fn (CharacterRelationship $r) => ["{$r->name} (id {$r->id})" => 0])->all();
+        $nessuno = 0;
+
+        $decisioni = Generation::where('character_id', $character->id)
+            ->where('purpose', 'editorial_decision')
+            ->where('status', 'completed')
+            ->latest('created_at')
+            ->take(self::MAX_RELATIONSHIP_LOOKBACK)
+            ->pluck('output');
+
+        $totale = 0;
+        foreach ($decisioni as $output) {
+            if (! is_array($output) || empty($output['decisione']) || $output['decisione'] !== 'pubblica') {
+                continue; // "non_pubblicare" non è una scelta su chi comparire in foto.
+            }
+            $totale++;
+            $relId = $output['personaggio_coinvolto_id'] ?? null;
+            $match = $relId ? $eligibili->firstWhere('id', $relId) : null;
+            if ($match) {
+                $perRelazione["{$match->name} (id {$match->id})"]++;
+            } else {
+                $nessuno++;
+            }
+        }
+
+        return ['per_relazione' => $perRelazione, 'nessuno' => $nessuno, 'totale' => $totale];
+    }
+
+    /**
+     * Stesso principio di buildTopicFrequency, applicato al formato (narrative_format) invece
+     * che al topic: bug reale osservato, "post" (foto singola + testo overlay) dominava senza che
+     * nulla lo segnalasse numericamente al cervello editoriale, a differenza dei topic.
+     *
+     * @return array<string,int> formato => conteggio, ordinato dal più frequente
+     */
+    private function buildFormatFrequency(Character $character): array
+    {
+        return $character->posts()
+            ->whereNotNull('narrative_format')
+            ->where('narrative_format', '!=', 'story_share') // non è una scelta editoriale propria, solo un derivato automatico
+            ->latest('created_at')
+            ->take(self::MAX_FORMAT_LOOKBACK)
+            ->pluck('narrative_format')
+            ->countBy()
+            ->sortDesc()
+            ->all();
+    }
+
+    /**
+     * Digest generico di attualità/curiosità (NewsDigestService, già esistente ma finora usato
+     * solo dalla pipeline legacy) — non legato alla nicchia del personaggio, a differenza del
+     * "tema caldo" di CheckHotTopics: qui l'obiettivo non è "un tema su cui reagire con un post
+     * dedicato", ma semplice materiale grezzo di cosa succede oggi nel mondo, disponibile come
+     * spunto per qualunque formato. Cache di un giorno: è lo stesso digest per qualunque
+     * personaggio lo richieda nella stessa giornata, non ha senso richiamare l'API esterna a ogni
+     * ciclo di ogni personaggio (ogni 15 minuti, routes/console.php).
+     */
+    private function buildGeneralNewsDigest(): array
+    {
+        return \Illuminate\Support\Facades\Cache::remember(
+            'editorial_context:notizie_del_giorno:' . TemporalContext::now()->toDateString(),
+            now()->addHours(6),
+            fn () => $this->newsDigest->fetchGeneralDigest(),
+        );
     }
 
     private function buildRecentTimeline(Character $character): array

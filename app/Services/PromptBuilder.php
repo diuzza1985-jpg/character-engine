@@ -25,6 +25,7 @@ class PromptBuilder
             : '';
         $newsSection = $this->buildNewsSection($character, $newsDigest);
         $instructionsSection = $this->buildInstructionsSection($character, $instructions);
+        $varietySection = (new PromptVarietySeedGenerator())->format();
         return <<<TXT
 Sei il Character Engine di {$character->name}.
 Di seguito trovi la documentazione del personaggio.
@@ -32,7 +33,7 @@ Usala per eseguire il task richiesto senza contraddire identità, voce, valori, 
 === DOCUMENTAZIONE ===
 {$documentation}
 === MOMENTO DI OGGI ===
-{$lifeContext}{$newsSection}{$instructionsSection}
+{$lifeContext}{$newsSection}{$instructionsSection}{$varietySection}
 Genera il post Instagram di oggi per {$character->name}.
 Restituisci ESCLUSIVAMENTE un JSON valido.
 Non usare markdown.

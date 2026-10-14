@@ -11,7 +11,7 @@ class HotTopic extends Model
 
     protected $fillable = [
         'character_id', 'title', 'summary', 'source_label', 'source_url',
-        'status', 'discovered_at', 'used_at',
+        'status', 'discovered_at', 'used_at', 'in_niche',
     ];
 
     protected function casts(): array
@@ -19,6 +19,7 @@ class HotTopic extends Model
         return [
             'discovered_at' => 'datetime',
             'used_at' => 'datetime',
+            'in_niche' => 'boolean',
         ];
     }
 

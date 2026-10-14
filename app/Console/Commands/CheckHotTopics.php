@@ -96,38 +96,65 @@ class CheckHotTopics extends Command
         }
 
         $keywords = $character->editorialSettings?->hot_topic_keywords ?? [];
-        if (empty($keywords)) {
-            return;
+
+        if (! empty($keywords)) {
+            $nicheCandidates = collect($pool)
+                ->filter(function (array $video) use ($keywords) {
+                    foreach ($keywords as $keyword) {
+                        if ($this->matchesKeyword($video, $keyword)) {
+                            return true;
+                        }
+                    }
+                    return false;
+                })
+                ->unique('video_id')
+                ->sortByDesc('view_count')
+                ->take(self::MAX_CANDIDATES_PER_CHARACTER)
+                ->values()
+                ->all();
+
+            if (! empty($nicheCandidates) && $this->tryCreateFromCandidates($character, $nicheCandidates, inNiche: true)) {
+                return;
+            }
         }
 
-        $candidates = collect($pool)
-            ->filter(function (array $video) use ($keywords) {
-                foreach ($keywords as $keyword) {
-                    if ($this->matchesKeyword($video, $keyword)) {
-                        return true;
-                    }
-                }
-                return false;
-            })
+        // Traccia generalista (richiesta utente, 13 ottobre 2026: "cercare anche tra i temi di
+        // attualità diversi dalla comfort zone... ma con forte appeal del pubblico"): prima la
+        // traccia sopra filtrava SOLO per corrispondenza alla nicchia stretta del personaggio
+        // (sez. judge() sotto, criterio "rilevante"), quindi quando — come per la maggior parte
+        // dei cicli osservati — nessun video del pool nomina esplicitamente le sue keyword, non
+        // si trovava mai nulla, anche quando il pool conteneva temi di forte interesse generale
+        // su cui il personaggio avrebbe comunque potuto dire la sua. Stesso pool già scaricato
+        // (nessuna chiamata YouTube aggiuntiva, search.list resta a zero unità extra), stesso
+        // filtro di rischio: cambia solo il criterio del giudizio LLM (judge($inNiche: false)).
+        $generalCandidates = collect($pool)
             ->unique('video_id')
             ->sortByDesc('view_count')
             ->take(self::MAX_CANDIDATES_PER_CHARACTER)
             ->values()
             ->all();
 
-        if (empty($candidates)) {
+        if (empty($generalCandidates)) {
             return;
         }
 
+        $this->tryCreateFromCandidates($character, $generalCandidates, inNiche: false);
+    }
+
+    /**
+     * @return bool true se è stato creato un HotTopic pending (giudicato rilevante e non a rischio).
+     */
+    private function tryCreateFromCandidates(Character $character, array $candidates, bool $inNiche): bool
+    {
         try {
-            $judged = $this->judge($character, $candidates);
+            $judged = $this->judge($character, $candidates, $inNiche);
         } catch (Throwable $e) {
-            Log::warning('CheckHotTopics: giudizio LLM fallito', ['character_id' => $character->id, 'error' => $e->getMessage()]);
-            return;
+            Log::warning('CheckHotTopics: giudizio LLM fallito', ['character_id' => $character->id, 'in_niche' => $inNiche, 'error' => $e->getMessage()]);
+            return false;
         }
 
         if (! $judged['rilevante'] || in_array($judged['categoria_rischio'], self::RISK_CATEGORIES, true)) {
-            return;
+            return false;
         }
 
         $chosen = $judged['indice_scelto'] ? ($candidates[$judged['indice_scelto'] - 1] ?? null) : null;
@@ -140,9 +167,13 @@ class CheckHotTopics extends Command
             'source_url' => $chosen['url'] ?? null,
             'status' => 'pending',
             'discovered_at' => now(),
+            'in_niche' => $inNiche,
         ]);
 
-        $this->info("Tema caldo trovato per {$character->name}: {$judged['titolo']}");
+        $etichetta = $inNiche ? '' : ' (fuori nicchia, forte appeal pubblico)';
+        $this->info("Tema caldo trovato per {$character->name}{$etichetta}: {$judged['titolo']}");
+
+        return true;
     }
 
     /**
@@ -156,7 +187,14 @@ class CheckHotTopics extends Command
         return $keyword !== '' && str_contains($haystack, mb_strtolower($keyword));
     }
 
-    private function judge(Character $character, array $candidates): array
+    /**
+     * @param bool $inNiche true per la traccia "pertinenza alla nicchia stretta" (comportamento
+     *   originale), false per la traccia generalista (richiesta utente, 13 ottobre 2026): stesso
+     *   filtro di rischio in entrambi i casi, cambia solo il criterio di "rilevante" — qui basta
+     *   un forte interesse pubblico/curiosità su cui {$character->name} possa dire la sua con la
+     *   propria voce, anche restando fuori dalla sua nicchia abituale.
+     */
+    private function judge(Character $character, array $candidates, bool $inNiche = true): array
     {
         $niche = implode(', ', $character->editorialSettings?->niche ?? []);
         $elenco = collect($candidates)
@@ -164,14 +202,18 @@ class CheckHotTopics extends Command
                 .($c['description'] !== '' ? " — {$c['description']}" : ''))
             ->implode("\n");
 
+        $criterio = $inNiche
+            ? "Il tuo compito è scegliere se UNO di questi video rappresenta un tema abbastanza pertinente e \"caldo\" da meritare un post di reazione da parte di {$character->name} oggi — non basta che il video sia popolare, deve essere davvero legato alla sua nicchia, non un argomento generico buono per chiunque."
+            : "Questa volta NON stiamo cercando pertinenza con la sua nicchia stretta ({$niche}): il tuo compito è scegliere se UNO di questi video rappresenta comunque un tema di forte interesse pubblico, curiosità o attualità genuina — qualcosa di cui la gente parla davvero oggi — abbastanza interessante da meritare un commento genuino da parte di {$character->name} nella propria voce, anche se è fuori tema rispetto alla sua nicchia abituale. Scarta solo ciò che è puro intrattenimento senza alcun aggancio reale con l'attualità/una notizia/una curiosità degna di nota (es. un videoclip musicale, un trailer, un video virale puramente comico), non per il solo fatto di non riguardare la sua nicchia.";
+
         $prompt = <<<TXT
 Sei un filtro editoriale per {$character->name}, un personaggio la cui nicchia è: {$niche}.
-Di seguito una lista di video di tendenza su YouTube pertinenti alle sue parole chiave. Il tuo compito è scegliere se UNO di questi video rappresenta un tema abbastanza pertinente e "caldo" da meritare un post di reazione da parte di {$character->name} oggi — non basta che il video sia popolare, deve essere davvero legato alla sua nicchia, non un argomento generico buono per chiunque.
+Di seguito una lista di video di tendenza su YouTube. {$criterio}
 
 {$elenco}
 
 Restituisci un JSON con questi campi:
-- rilevante: true solo se ALMENO UNO dei video sopra rappresenta un tema genuinamente pertinente alla nicchia di {$character->name} e abbastanza significativo da motivare un post; false altrimenti (es. tutti fuori tema, o solo genericamente popolari senza legame vero con la sua nicchia)
+- rilevante: true solo se ALMENO UNO dei video sopra soddisfa il criterio sopra; false altrimenti
 - categoria_rischio: uno tra "nessuna", "politica_elettorale", "tragedia", "cronaca_nera" — classifica onestamente il tema scelto anche se questo lo scarterebbe: non ammorbidire la classificazione per farlo passare
 - titolo: se rilevante, un titolo breve e neutro del tema scelto (max 10 parole), altrimenti stringa vuota
 - sintesi: se rilevante, 2-3 frasi neutre che riassumono il tema per chi deve scriverci un post, altrimenti stringa vuota

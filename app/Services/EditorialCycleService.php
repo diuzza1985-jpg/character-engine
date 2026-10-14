@@ -18,6 +18,13 @@ use Throwable;
  */
 class EditorialCycleService
 {
+    // Finestra di riuso di un post 'failed' (findReusableFailedPost sotto): oltre questo numero
+    // di giorni il contenuto rischia di essere narrativamente stantio (giorno della
+    // settimana/stagione citati nel prompt_immagine, "tema_caldo" ormai vecchio, storyline
+    // nel frattempo avanzata) più di quanto valga il risparmio di una chiamata OpenAI — meglio
+    // una decisione nuova a quel punto.
+    private const REUSE_WINDOW_DAYS = 3;
+
     public function __construct(
         private EditorialContextBuilder $contextBuilder,
         private EditorialBrainService $brain,
@@ -31,6 +38,17 @@ class EditorialCycleService
      */
     public function run(Character $character, ?string $instructions = null): array
     {
+        // Riuso di una decisione già pagata (bug reale, 8-13 ottobre 2026: fal.ai bloccato per
+        // credito esaurito, 5 post rimasti 'failed' con caption/prompt_immagine già prodotti da
+        // OpenAI ma nessuna immagine) — PRIMA di chiamare di nuovo $this->brain->decide() (una
+        // chiamata OpenAI a pagamento), controlliamo se esiste già un post fallito compatibile
+        // con tutto il testo pronto, fallito solo per l'immagine. Solo per il flusso automatico
+        // senza istruzioni specifiche del giorno: con $instructions valorizzate l'utente vuole
+        // davvero un contenuto nuovo che le rispetti, non del materiale vecchio deciso senza.
+        if ($instructions === null && $reused = $this->findReusableFailedPost($character)) {
+            return $reused;
+        }
+
         $settings = CharacterEditorialSettings::firstOrCreate(
             ['character_id' => $character->id],
             ['max_giorni_silenzio' => 2, 'diario_ogni_n_post' => 20] // <-- diario_ogni_n_post aggiunto qui per esplicitezza; il default DB (20, sezione 2.1) copre comunque i record creati da altre strade
@@ -59,7 +77,7 @@ class EditorialCycleService
         // al cervello editoriale, non solo un booleano — da qui la riga persistita invece di un
         // conteggio calcolato al volo.
         $hotTopic = HotTopic::where('character_id', $character->id)->where('status', 'pending')->latest('discovered_at')->first();
-        $temaCaldo = $hotTopic ? ['titolo' => $hotTopic->title, 'sintesi' => $hotTopic->summary] : null;
+        $temaCaldo = $hotTopic ? ['titolo' => $hotTopic->title, 'sintesi' => $hotTopic->summary, 'in_niche' => $hotTopic->in_niche] : null;
 
         $context = $this->contextBuilder->build($character);
 
@@ -144,6 +162,51 @@ class EditorialCycleService
             'last_updated_at' => now(),
             'resolution_notes' => $update['note'] !== '' ? $update['note'] : $storyline->resolution_notes,
         ]);
+    }
+
+    /**
+     * @return array{generation: Generation, decision: array, editorial_decision: EditorialDecision|null, post: Post}|null
+     */
+    private function findReusableFailedPost(Character $character): ?array
+    {
+        $post = Post::where('character_id', $character->id)
+            ->where('status', 'failed')
+            // Esclude i post 'story_share': non nascono da una decisione editoriale propria
+            // (PublishInstagramPostJob li crea riusando il generation_id del post originale già
+            // pubblicato), riusarli qui li tratterebbe erroneamente come un formato "post"/
+            // "carousel"/ecc. da illustrare da capo.
+            ->where(function ($q) {
+                $q->whereNull('narrative_format')->orWhere('narrative_format', '!=', 'story_share');
+            })
+            // Vuoto, non solo "non ancora pubblicato": un post con già delle media_urls non è
+            // fallito per colpa dell'immagine, non è il caso che vogliamo recuperare qui.
+            ->where(function ($q) {
+                $q->whereNull('media_urls')->orWhereJsonLength('media_urls', 0);
+            })
+            ->whereNotNull('generation_id')
+            ->where('created_at', '>=', now()->subDays(self::REUSE_WINDOW_DAYS))
+            ->oldest('created_at') // il più vecchio compatibile prima: svuota il backlog in ordine
+            ->first();
+
+        if (! $post) {
+            return null;
+        }
+
+        $generation = Generation::find($post->generation_id);
+        if (! $generation || ! is_array($generation->output) || empty($generation->output['decisione'])) {
+            return null; // Generation mancante/corrotta: meglio una decisione nuova che un crash.
+        }
+
+        Log::info("Riuso post #{$post->id} di {$character->slug} (fallito il {$post->created_at->toDateTimeString()}, decisione OpenAI già pagata) invece di una nuova chiamata OpenAI.");
+
+        $post->update(['status' => 'draft']);
+
+        return [
+            'generation' => $generation,
+            'decision' => $generation->output,
+            'editorial_decision' => EditorialDecision::where('generation_id', $generation->id)->first(),
+            'post' => $post,
+        ];
     }
 
     private function mapFormatoToMediaType(?string $formato): string

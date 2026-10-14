@@ -301,7 +301,12 @@ class EditorialBrainService
         $relazioni = $this->formatRelazioni($context['relazioni_rilevanti']);
         $contenutiRecenti = $this->formatContenutiRecenti($context['contenuti_recenti']);
         $varietaArgomenti = $this->formatVarietaArgomenti($context['varieta_argomenti'] ?? []);
+        $varietaPersonaggi = $this->formatVarietaPersonaggi($context['varieta_personaggi_coinvolti'] ?? []);
+        $varietaFormati = $this->formatVarietaFormati($context['varieta_formati'] ?? []);
         $vitaRecente = $this->formatVitaRecente($context['vita_recente']);
+        $notizieDelGiorno = $this->formatNotizieDelGiorno($context['notizie_del_giorno'] ?? []);
+        $semiVariazione = (new PromptVarietySeedGenerator())->format('testo');
+        $semiVariazioneVisiva = (new PromptVarietySeedGenerator())->format('immagine');
         $istruzioniSpecifiche = ($instructions !== null && trim($instructions) !== '')
             ? "\n" . $this->buildInstructionsParagraph($instructions) . "\n"
             : '';
@@ -309,7 +314,11 @@ class EditorialBrainService
             ? "\n" . $this->buildForcedParagraph($character, $daysSinceLastPost, $maxGiorniSilenzio) . "\n"
             : '';
         $temaCaldoSezione = $temaCaldo !== null
-            ? "\n=== TEMA CALDO DI OGGI (disponibile come formato \"tema_caldo\") ===\n{$temaCaldo['titolo']}\n{$temaCaldo['sintesi']}\n"
+            ? "\n=== TEMA CALDO DI OGGI (disponibile come formato \"tema_caldo\") ===\n"
+                . (($temaCaldo['in_niche'] ?? true)
+                    ? ''
+                    : "Fuori dalla tua nicchia abituale, ma con forte interesse pubblico: va bene lo stesso, anzi aiuta a non sembrare sempre concentrati sullo stesso argomento — dacci comunque il tuo punto di vista genuino, non un riassunto neutro.\n")
+                . "{$temaCaldo['titolo']}\n{$temaCaldo['sintesi']}\n"
             : '';
         $compitoIntro = $forcePublish
             ? "Decidi cosa pubblica oggi {$character->name}: la regola sopra rende \"pubblica\" l'unica decisione possibile per questo ciclo, quindi il tuo compito è trovare l'idea più onesta possibile, non decidere se pubblicare."
@@ -349,9 +358,17 @@ Prima di scegliere una battuta o un bersaglio comico per oggi, controlla se hai 
 {$varietaArgomenti}
 Questo è un conteggio vero sulle categorie (topic) delle ultime pubblicazioni, non un suggerimento vago: se una categoria compare già in almeno metà delle pubblicazioni sopra, oggi scegli consapevolmente qualcos'altro — anche se ti verrebbe naturale tornarci, la varietà reale conta più della singola idea più comoda. Se il conteggio è vuoto o troppo scarso per dire qualcosa, ignora questa sezione.
 
+=== VARIETÀ DI CHI COMPARE IN FOTO (conteggio reale) ===
+{$varietaPersonaggi}
+Stesso principio della sezione sopra, applicato a CHI compare fisicamente nella foto (personaggio_coinvolto_id), non a cosa si racconta: se qualcuno è sistematicamente sottorappresentato rispetto alle altre relazioni che POSSONO comparire in foto (o rispetto a "nessuno"), oggi è un buon giorno per riequilibrare, non un'eccezione da giustificare.
+
+=== VARIETÀ DI FORMATO NELLE ULTIME PUBBLICAZIONI (conteggio reale) ===
+{$varietaFormati}
+Stesso principio delle due sezioni sopra: se un formato (tipicamente "post") compare già nettamente più degli altri, oggi preferisci consapevolmente un formato diverso tra quelli disponibili, a parità di idea — non scegliere "post" per abitudine solo perché è il default più comodo.
+
 === VITA RECENTE (eventi già vissuti, pubblicati o no) ===
 {$vitaRecente}
-{$temaCaldoSezione}{$istruzioniSpecifiche}{$regolaSilenzio}
+{$notizieDelGiorno}{$semiVariazione}{$semiVariazioneVisiva}{$temaCaldoSezione}{$istruzioniSpecifiche}{$regolaSilenzio}
 === IL TUO COMPITO ===
 {$compitoIntro}
 
@@ -359,8 +376,10 @@ Questo è un conteggio vero sulle categorie (topic) delle ultime pubblicazioni, 
     - se decidi di pubblicare, scegli tu stesso l'orario di oggi con orario_pubblicazione ("HH:MM", 24h) — deve essere un orario futuro rispetto a adesso ({$oggi['ora']}) e ragionevole per un contenuto social, indicativamente tra le {$this->publishWindowStart()} e le {$this->publishWindowEnd()}; se a quest'ora del giorno non resta più una finestra sensata (es. sono già le 22:30), è più onesto scegliere "non_pubblicare" per oggi piuttosto che forzare un orario innaturale. Il CONTENUTO che scrivi (testo/prompt_immagine) deve essere coerente con l'orario scelto — non scrivere "buongiorno"/luce mattutina se scegli le 20:00, non scrivere "buonasera" se scegli le 08:00. Se decidi "non_pubblicare", orario_pubblicazione deve restare null.
     - scegli il formato più adatto all'idea, non il più comodo. Opzioni disponibili oggi: {$formatiDisponibili}
     - il testo/caption deve sembrare scritto da una persona reale, mai da un assistente AI, coerente con documentazione e stato interno
+    - VALORE PER IL PUBBLICO (bug reale segnalato dall'utente: troppi post recenti erano la stessa battuta sull'AI riformulata — "la figlia mi chiede se l'AI capisce/sbaglia/diventa cattiva" tornata quasi identica più volte): {$character->name} deve essere interessante da seguire, non solo simpatico — dare al pubblico qualcosa di suo (una notizia, una curiosità, un fatto di attualità, un'osservazione non scontata), non ripetere sempre lo stesso luogo comune su AI/tecnologia. Guarda NOTIZIE DEL GIORNO sotto prima di scartarla: anche quando il formato non è "tema_caldo", un contenuto che riprende davvero una notizia o una curiosità genuina (con used_news=true, vedi sotto) vale più di un'altra variazione sulla stessa battuta di sempre — soprattutto se VARIETÀ DI ARGOMENTI sopra mostra che l'AI/tecnologia è già un tema ricorrente.
     - puoi proporre l'aggiornamento di UNA storyline con storyline_da_aggiornare, ma solo se il contenuto di oggi la fa avanzare davvero (non per il solo fatto di nominarla): storyline_id deve essere uno di quelli elencati sopra, mai un ID inventato; nuovo_stato è uno tra dormiente/aperta/in_pausa/risolta/abbandonata ("risolta" = chiusura con un finale soddisfacente, "abbandonata" = lasciata cadere senza un vero finale, "in_pausa" = si ferma ma resta aperta); se non stai aggiornando nessuna storyline, storyline_da_aggiornare deve essere null
-    - personaggio_coinvolto_id: valorizzalo con l'id di una relazione elencata sopra in RELAZIONI RILEVANTI SOLO se marcata "può comparire in foto" E la scena di oggi la ritrae davvero fisicamente insieme a {$character->name} nella stessa immagine (non basta che la nomini nel testo) — un'occasione rara, non il default; per qualunque altra situazione (relazione non marcata così, o semplicemente non prevista nella foto di oggi) deve essere null. Mai un id inventato o di una relazione non marcata "può comparire in foto".
+    - personaggio_coinvolto_id: valorizzalo con l'id di una relazione elencata sopra in RELAZIONI RILEVANTI SOLO se marcata "può comparire in foto" E la scena di oggi la ritrae davvero fisicamente insieme a {$character->name} nella stessa immagine (non basta che la nomini nel testo); per qualunque altra situazione (relazione non marcata così, o semplicemente non prevista nella foto di oggi) deve essere null. Mai un id inventato o di una relazione non marcata "può comparire in foto". Guarda la sezione VARIETÀ DI CHI COMPARE IN FOTO sopra prima di lasciarlo null per abitudine: se una persona (non solo un animale) marcata "può comparire in foto" non si vede quasi mai rispetto alle altre, oggi è una buona occasione per sceglierla, non un'eccezione.
+    - ogni persona che nomini per nome in testo/idea/carousel_slides/messaggi_* (non gli animali, loro restano comunque solo narrativi salvo personaggio_coinvolto_id) deve corrispondere a una relazione elencata sopra in RELAZIONI RILEVANTI — mai inventare sul momento un nome nuovo di una persona che non esiste in quell'elenco, anche se ti sembrerebbe naturale per la scena.
     - Se l'idea di oggi ruota specificamente attorno a una relazione marcata "può comparire in foto" (es. un animale domestico, non solo un suo oggetto), preferisci mostrarla davvero — formato "post"/"carousel"/"story" con personaggio_coinvolto_id valorizzato — invece del formato "oggetto", che la esclude sempre dall'immagine e mostra solo i suoi oggetti: ha senso raccontarla senza mostrarla solo se non può comparire in foto, o se narrativamente preferisci restare più indiretto per scelta, non per abitudine.
     - prompt_immagine descrive la scena per un futuro generatore di immagini (tu non generi l'immagine): in inglese, concreto (soggetto, ambientazione, luce, inquadratura), coerente col profilo visivo sopra, senza testo da sovrapporre nell'immagine — anche per un carousel è UNA sola foto: le slide condividono la stessa immagine, con testo diverso sovrapposto sopra
     - prompt_immagine deve essere coerente con la stagione indicata sopra in OGGI (oggi è {$oggi['stagione']}): non vestire {$character->name} con capi non adatti alla stagione anche se il profilo visivo li descrive in generale — quel profilo descrive lo stile abituale del personaggio, non un obbligo da rispettare in ogni condizione climatica. Attenzione però: {$oggi['stagione']} è solo un'indicazione calendariale, non una previsione meteo reale — l'inizio o la fine di una stagione in Italia (es. i primi giorni di settembre, la fine della primavera) può avere ancora per settimane il clima della stagione precedente, a volte anche un caldo intenso (bug reale osservato: un post dei primi di settembre ha mostrato {$character->name} con un golfino pesante e foglie autunnali a terra durante un'ondata di caldo). Se oggi è uno di questi momenti di passaggio, usa il buon senso: preferisci un abbigliamento/scena più neutri che non stonerebbero platealmente col clima della stagione precedente, invece di dettagli marcatamente stagionali (maglioni pesanti, foglie cadute a terra, nevicate, ecc.) — a meno che l'idea di oggi non li richieda esplicitamente
@@ -373,8 +392,8 @@ Questo è un conteggio vero sulle categorie (topic) delle ultime pubblicazioni, 
     - se scegli il formato "screenshot": prompt_immagine descrive comunque una foto normale di {$character->name} (la conversazione non viene generata dentro l'immagine, viene sovrapposta dopo, quindi non descriverla visivamente in prompt_immagine); messaggi_chat contiene da 2 a 5 messaggi brevi (poche parole ciascuno, senza hashtag o emoji), in ordine, che alternano chi scrive come in un vero scambio tra {$character->name} e un'altra persona — quella persona resta solo narrativa, mai descritta in prompt_immagine (stessa regola di sopra sulle persone secondarie); testo resta la caption normale sotto il post, distinta dai messaggi. Per qualunque formato diverso da "screenshot", messaggi_chat deve essere null
     - se scegli il formato "conversazione": NON esiste nessuna foto per questo formato, è un mockup puro di un'app di messaggistica — prompt_immagine deve restare null (nessuna immagine viene generata). messaggi_conversazione contiene da 2 a 5 messaggi in ordine, ciascuno un oggetto {mittente, testo}: mittente è "{$character->name}" oppure il nome di un'altra persona reale per lui/lei (dedotto dalle relazioni/bible sopra, mai un nome generico inventato sul momento se esiste già una persona pertinente nella sua vita); testo è breve (poche parole, senza hashtag o emoji); deve leggersi come un vero scambio a due, non un monologo — quindi non tutti i messaggi dello stesso mittente di fila. testo (la caption sotto il post) resta breve e distinta dai messaggi. Per qualunque formato diverso da "conversazione", messaggi_conversazione deve essere null
     - se scegli il formato "diario": testo è un pensiero breve in prima persona, tono riflessivo e privato, frasi semplici, NESSUN hashtag e NESSUNA call-to-action — non è un contenuto promozionale, è più vicino a una pagina scritta per sé che qualcuno ha visto per caso; prompt_immagine descrive uno sfondo quieto coerente con lo stato interno di oggi, non serve un primo piano del personaggio
-    - se scegli il formato "tema_caldo": reagisci al TEMA CALDO DI OGGI indicato sopra, come farebbe {$character->name} in prima persona sulla sua nicchia — non limitarti a riassumerlo, portaci il suo punto di vista genuino. prompt_immagine descrive un'immagine legata AL TEMA, non a {$character->name}: di default nessuna persona nell'inquadratura (stesso principio del formato "oggetto" sopra), a meno che il tema stesso non sia intrinsecamente astratto e un dettaglio concreto renda l'idea meglio di una persona; used_news deve essere true (è l'unico formato per cui succede)
-    - used_news è true solo per il formato "tema_caldo" (unico caso in cui il contenuto di oggi nasce da una fonte esterna, non dal personaggio stesso); per qualunque altro formato resta sempre false
+    - se scegli il formato "tema_caldo": reagisci al TEMA CALDO DI OGGI indicato sopra, come farebbe {$character->name} in prima persona — non limitarti a riassumerlo, portaci il suo punto di vista genuino (anche quando è segnalato come fuori dalla sua nicchia abituale: proprio lì sta l'occasione di non sembrare sempre concentrati sullo stesso argomento). prompt_immagine descrive un'immagine legata AL TEMA, non a {$character->name}: di default nessuna persona nell'inquadratura (stesso principio del formato "oggetto" sopra), a meno che il tema stesso non sia intrinsecamente astratto e un dettaglio concreto renda l'idea meglio di una persona; used_news deve essere true (è l'unico formato per cui è OBBLIGATORIO)
+    - used_news è true ogni volta che il contenuto di oggi nasce davvero da una fonte esterna invece che dal personaggio stesso: sempre per "tema_caldo" (obbligatorio), oppure per qualunque altro formato se hai ripreso genuinamente qualcosa dalla sezione NOTIZIE DEL GIORNO sotto (non basta averla letta: deve avercene fatta davvero qualcosa, anche solo un commento di passaggio). Resta false quando il contenuto nasce solo dalla vita/pensieri del personaggio.
     - topic è una categoria libera e breve (una o due parole, es. "lavoro", "famiglia", "animali", "salute", "casa", "hobby", "tecnologia", "attualità" — o qualunque altra etichetta più adatta a cosa hai deciso oggi) che descrive l'argomento di fondo dell'idea di oggi: non fa parte del contenuto pubblico, serve solo a tracciare la varietà nel tempo (vedi sezione VARIETÀ DI ARGOMENTI sopra). Se decidi non_pubblicare, lascia topic a null
 
 Restituisci ESCLUSIVAMENTE il JSON conforme allo schema fornito. Non usare markdown, non usare \`\`\`json, non aggiungere testo prima o dopo.
@@ -560,6 +579,65 @@ TXT;
         }
 
         return implode("\n", $lines);
+    }
+
+    /**
+     * @param array{per_relazione: array<string,int>, nessuno: int, totale: int} $dati
+     *   EditorialContextBuilder::buildRelationshipAppearanceFrequency.
+     */
+    private function formatVarietaPersonaggi(array $dati): string
+    {
+        $totale = $dati['totale'] ?? 0;
+        if ($totale === 0 || empty($dati['per_relazione'])) {
+            return 'Non ci sono ancora abbastanza dati per calcolare questa varietà (nessuna relazione può comparire in foto, o poche pubblicazioni recenti).';
+        }
+
+        $lines = [];
+        foreach ($dati['per_relazione'] as $nome => $count) {
+            $lines[] = "- {$nome}: {$count}/{$totale} pubblicazioni recenti";
+        }
+        $lines[] = "- nessuno (solo protagonista): {$dati['nessuno']}/{$totale} pubblicazioni recenti";
+
+        return implode("\n", $lines);
+    }
+
+    /**
+     * @param array<string,int> $frequenze formato => conteggio, EditorialContextBuilder::buildFormatFrequency.
+     */
+    private function formatVarietaFormati(array $frequenze): string
+    {
+        if (empty($frequenze)) {
+            return 'Non ci sono ancora abbastanza dati per calcolare la varietà di formato (poche pubblicazioni recenti).';
+        }
+
+        $totale = array_sum($frequenze);
+        $lines = [];
+        foreach ($frequenze as $formato => $count) {
+            $lines[] = "- {$formato}: {$count}/{$totale} pubblicazioni recenti";
+        }
+
+        return implode("\n", $lines);
+    }
+
+    /**
+     * @param array<int, array{title: ?string, description: ?string, source: ?string}> $notizie
+     *   EditorialContextBuilder::buildGeneralNewsDigest (NewsDigestService::fetchGeneralDigest).
+     */
+    private function formatNotizieDelGiorno(array $notizie): string
+    {
+        if (empty($notizie)) {
+            return '';
+        }
+
+        $lines = array_map(function (array $n) {
+            $fonte = $n['source'] ? " ({$n['source']})" : '';
+            $descrizione = $n['description'] ? " — {$n['description']}" : '';
+            return "- {$n['title']}{$fonte}{$descrizione}";
+        }, $notizie);
+
+        return "\n=== NOTIZIE DEL GIORNO (materiale grezzo facoltativo, non legato alla tua nicchia abituale) ===\n"
+            . "Non è un obbligo usarle: sono qui per darti l'occasione di essere interessante e informato, non solo per raccontare la tua giornata. Se una di queste è genuinamente interessante/curiosa e puoi commentarla con la tua voce — qualunque formato, non solo \"tema_caldo\" — fallo, ricordandoti di mettere used_news=true. Ignorale tutte se nessuna si presta davvero.\n"
+            . implode("\n", $lines) . "\n";
     }
 
     private function formatVitaRecente(array $eventi): string

@@ -9,7 +9,8 @@ Prima di scrivere la guida ho controllato cosa l'app usa realmente, per non chie
 - **Nessun Redis richiesto**: sessioni/cache/coda sono già configurate su `database` (`SESSION_DRIVER=database`, `CACHE_STORE=database`, `QUEUE_CONNECTION=database`) — Redis è presente solo nello stack Sail locale, mai obbligatorio.
 - **Nessun queue worker richiesto**: verificato che l'unico dispatch asincrono reale rimasto nel codice (`PublishInstagramPostJob::shareToStoryIfNeeded()`) è stato appena corretto in `dispatchSync()` — bug reale trovato proprio preparando questo deploy (jobs mai processati, 3 Story rimaste bloccate per giorni, vedi commit `c022543`). Tutto il resto del codebase (`GenerateInstagramPostJob`, `ProcessScheduledPostJob`, l'automazione giornaliera) già usa `dispatchSync`/`dispatchNow` di proposito.
 - **Nessun `storage:link` richiesto**: nessun punto del codice usa il disco `public` di Laravel — tutti gli asset (foto personaggi, immagini generate) passano dalla route firmata `storage/{path}` sul disco `local` (verificato, sez. Fase 4 mondo narrativo).
-- **Nessuna email richiesta**: nessun `Mail::`/`->notify()` nel codebase — `MAIL_MAILER` può restare su `log` senza rompere nulla, non serve un vero SMTP per ora.
+- **Email: sì, da ottobre 2026** (*aggiornato il 14 ottobre 2026*). Quando la guida è stata scritta non c'era nessun `Mail::` nel codice; ora ci sono due avvisi automatici: saldo OpenAI/fal.ai in esaurimento (`credits:check-balances`, ogni 6 ore) e bersagli comici ripetuti (`character:check-comic-targets`, lunedì 08:00), entrambi inviati a `MAIL_ALERT_TO`. Con `MAIL_MAILER=log` questi avvisi finirebbero solo nel log, senza che nessuno li veda — su Netsons va usato `MAIL_MAILER=sendmail`, cioè la funzione `mail()`/sendmail già configurata dall'hosting (vedi sez. 6). In locale invece non funziona: nel container Sail non c'è sendmail, e un'email spedita da un IP domestico verrebbe rifiutata o finirebbe nello spam (nessun SPF per il dominio) — lì serve l'SMTP di una casella vera, oppure si leggono in Mailpit (`http://localhost:8025`).
+- **⚠ Da verificare prima del deploy — queue worker** (*nota del 14 ottobre 2026*): il punto sopra ("nessun queue worker richiesto") non è più vero per intero. `PublishDuePosts` (`character:publish-due-posts`) accoda `PublishInstagramPostJob::dispatch()` in modo asincrono, e in locale c'è un servizio `queue` dedicato apposta (`compose.yaml`, timeout 3600s). Su Netsons senza worker quei job resterebbero in coda per sempre e nessun post verrebbe pubblicato. Prima del deploy va deciso come gestirlo (es. una riga di cron `queue:work --stop-when-empty` ogni minuto, compatibile con i limiti di durata dei processi dell'hosting, oppure tornare a `dispatchSync` per quel comando).
 - **Un solo database**: in locale esistono `laravel` + `testing` (per PHPUnit) — in produzione serve solo l'equivalente di `laravel`.
 - **L'intera automazione si riduce a UN SOLO comando cron**: `php artisan schedule:run`, eseguito ogni minuto, gestisce da solo tutto ciò che è già dichiarato in `routes/console.php` (materializzazione slot, tick del motore di vita, pianificazione giornaliera con orario deciso dal cervello editoriale, pubblicazione automatica, ecc.) — non serve replicare ogni singolo comando come riga di cron separata.
 
@@ -78,7 +79,10 @@ CACHE_STORE=database
 QUEUE_CONNECTION=database
 FILESYSTEM_DISK=local
 
-MAIL_MAILER=log
+MAIL_MAILER=sendmail
+MAIL_FROM_ADDRESS=noreply@cthosting.it   # un indirizzo di un dominio gestito da questo account Netsons, così SPF/DKIM tornano
+MAIL_FROM_NAME="Character Engine"
+MAIL_ALERT_TO=                           # dove ricevere gli avvisi (saldo crediti, bersagli comici): stesso valore del .env locale
 
 # Copia questi dal tuo .env locale (stessi valori, stesse chiavi di OpenAI/Fal/Instagram/YouTube):
 OPENAI_API_KEY=
@@ -140,6 +144,7 @@ Netsons offre AutoSSL (Let's Encrypt) via cPanel, di norma automatico entro poch
 - [ ] `https://characterengine.cthosting.it/aiadmin` chiede il login del pannello admin.
 - [ ] Login funziona, `/aiadmin/posts` mostra lo storico reale (se hai copiato lo stesso database — vedi nota sotto).
 - [ ] Dopo qualche minuto, `storage/logs/laravel.log` mostra attività dello scheduler (nessun errore ripetuto).
+- [ ] Le email arrivano davvero: lancia una tantum (trucco del cron, sez. 8) `php artisan credits:check-balances` con una soglia volutamente alta nel `.env` (es. `FAL_LOW_BALANCE_THRESHOLD_USD=100000`), controlla che l'avviso arrivi a `MAIL_ALERT_TO` (anche nello spam), poi rimetti la soglia normale.
 - [ ] Ricollega l'account Instagram di Sofia dal nuovo dominio (il vecchio token resta legato al vecchio `INSTAGRAM_REDIRECT_URI`/dominio in sessione, va rifatto almeno una volta).
 
 **Nota sul database**: questa guida presume un database di produzione vuoto (nuove migration, nessun dato). Se invece vuoi **portare i dati esistenti** (Sofia, Sara, tutti i personaggi/post già generati) dal tuo MySQL locale a quello Netsons, serve un passaggio ulteriore (export/import via phpMyAdmin di cPanel, che su Netsons è quasi sempre disponibile anche senza SSH) — dimmelo se è quello che vuoi fare e prepariamo quel passaggio a parte, con più attenzione ai dati sensibili (token Instagram inclusi) da non esporre nel processo.
